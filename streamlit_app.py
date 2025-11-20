@@ -219,8 +219,6 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 return
 
             g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
-            g2['Etiqueta'] = g2[column] + ' (' + (g2['Porcentaje'] * 100).round(1).astype(str) + '%)'
-
             pie = (
                 alt.Chart(g2)
                 .mark_arc()
@@ -235,17 +233,16 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 )
             )
 
-            labels = (
-                alt.Chart(g2)
-                .mark_text(radius=120, size=12)
-                .encode(
-                    theta="US $ Equiv:Q",
-                    text="Etiqueta:N",
-                    color=f"{column}:N",
-                )
-            )
+            pie_col, legend_col = st.columns([0.6, 0.4])
+            with pie_col:
+                st.altair_chart(pie, use_container_width=True)
 
-            st.altair_chart(pie + labels, use_container_width=True)
+            legend_lines = [
+                f"- {row[column]}: {(row['Porcentaje'] * 100):.1f}%"
+                for _, row in g2.sort_values('Porcentaje', ascending=False).iterrows()
+            ]
+            with legend_col:
+                st.markdown("\n".join(legend_lines))
 
 
 # ============================================
@@ -294,12 +291,16 @@ def render_orr_by_dimension(df):
         "Dimensión para graficar ORR",
         options=list(dims.keys()),
         format_func=lambda x: dims[x],
+        key="orr_dimension_selector",
     )
 
     # Selección de categorías específicas dentro de la dimensión
     category_options = sorted(df[dimension].unique())
     selected_categories = st.multiselect(
-        f"{dims[dimension]} a mostrar", category_options, default=category_options
+        f"{dims[dimension]} a mostrar",
+        category_options,
+        default=category_options,
+        key=f"orr_categories_{dimension}",
     )
 
     df_selected = df[df[dimension].isin(selected_categories)]
@@ -384,11 +385,15 @@ def render_exposure_by_dimension(df):
         "Dimensión para graficar exposición",
         options=available_dims,
         format_func=lambda x: dims[x],
+        key="exposure_dimension_selector",
     )
 
     category_options = sorted(df[dimension].unique())
     selected_categories = st.multiselect(
-        f"{dims[dimension]} a mostrar", category_options, default=category_options
+        f"{dims[dimension]} a mostrar",
+        category_options,
+        default=category_options,
+        key=f"exposure_categories_{dimension}",
     )
 
     df_selected = df[df[dimension].isin(selected_categories)]
