@@ -3,45 +3,44 @@ import pandas as pd
 import altair as alt
 from pathlib import Path
 
-# =========================
+# ============================================
 # CONFIGURACIÓN GENERAL
-# =========================
+# ============================================
 
-SCALE_FACTOR = 1_000  # El archivo viene en miles de dólares
+SCALE_FACTOR = 1_000  # El archivo está en miles de USD
 
 st.set_page_config(
-    page_title='Análisis de portafolio',
+    page_title='Análisis de Portafolio',
     page_icon=':bar_chart:',
     layout='wide',
 )
 
-# Ruta del archivo (igual a como lo tenías, ajusta si es necesario)
+# Archivo CSV (AJUSTA ESTA RUTA CUANDO LO SUBAS A STREAMLIT CLOUD)
 PORTFOLIO_FILE = (
     Path(__file__).parent
     / 'data'
     / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V2.csv'
 )
 
-
-# =========================
+# ============================================
 # CARGA Y LIMPIEZA DE DATOS
-# =========================
+# ============================================
 
 @st.cache_data
 def load_portfolio_data(file_path: Path, last_modified: float):
     """
-    Lee y limpia la base de datos del portafolio corporativo.
-
-    El parámetro `last_modified` hace que se invalide la caché
-    cuando el archivo cambia.
+    Lee y limpia el dataset del portafolio corporativo.
     """
+
     df = pd.read_csv(file_path)
 
-    # Limpiar espacios en nombres de columnas
+    # 1. LIMPIAR NOMBRES DE COLUMNAS
     df.columns = [col.strip() for col in df.columns]
 
-    # Normalizar columna de monto
+    # 2. Nombre REAL correcto de la columna de monto:
     amount_col = 'US $ Equiv'
+
+    # 3. LIMPIAR Y CONVERTIR MONTOS
     df[amount_col] = (
         df[amount_col]
         .astype(str)
@@ -51,76 +50,51 @@ def load_portfolio_data(file_path: Path, last_modified: float):
     df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
     df[amount_col] = df[amount_col] * SCALE_FACTOR
 
-    # Rellenar dimensiones categóricas clave
-    for column in ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']:
-        if column in df.columns:
-            df[column] = df[column].fillna('Sin especificar')
+    # 4. Normalizar dimensiones categóricas
+    for col in ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']:
+        if col in df.columns:
+            df[col] = df[col].fillna('Sin especificar')
 
     return df
 
-
-# =========================
+# ============================================
 # FUNCIONES AUXILIARES
-# =========================
+# ============================================
 
 def format_currency(value: float) -> str:
-    """Retorna el valor en formato moneda con separador de miles."""
     return f"{value:,.0f}"
 
-
-def concentration_ratio(df: pd.DataFrame, column: str, top_n: int = 10) -> float:
-    """
-    Calcula el CR_n (Concentration Ratio): porcentaje de exposición
-    concentrada en las top_n categorías de una dimensión.
-    """
-    if df.empty:
-        return 0.0
-
+def concentration_ratio(df, column, top=10):
+    if df.empty: return 0
     grouped = df.groupby(column)['US $ Equiv'].sum().sort_values(ascending=False)
-    total = grouped.sum()
-    if total == 0:
-        return 0.0
+    return grouped.head(top).sum() / grouped.sum()
 
-    top_sum = grouped.head(top_n).sum()
-    return float(top_sum / total)
+def hhi(df, column):
+    if df.empty: return 0
+    g = df.groupby(column)['US $ Equiv'].sum()
+    s = g / g.sum()
+    return float((s**2).sum() * 10_000)
 
+# ============================================
+# RENDER: KPIs
+# ============================================
 
-def hhi(df: pd.DataFrame, column: str) -> float:
-    """
-    Calcula el índice de Herfindahl–Hirschman (HHI) para una dimensión.
-    Se escala a 0–10.000 como en análisis de competencia.
-    """
-    if df.empty:
-        return 0.0
+def render_kpis(df):
+    total = df['US $ Equiv'].sum()
+    n = len(df)
+    avg = df['US $ Equiv'].mean() if n else 0
 
-    grouped = df.groupby(column)['US $ Equiv'].sum()
-    total = grouped.sum()
-    if total == 0:
-        return 0.0
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Exposición total (US$)", format_currency(total))
+    c2.metric("Número de registros", f"{n:,}")
+    c3.metric("Ticket promedio (US$)", format_currency(avg))
 
-    shares = grouped / total
-    return float((shares.pow(2).sum()) * 10_000)
+# ============================================
+# RENDER: CONCENTRACIÓN
+# ============================================
 
-
-# =========================
-# BLOQUES DE RENDERIZADO
-# =========================
-
-def render_kpis(df: pd.DataFrame):
-    """Muestra métricas clave del dataset filtrado."""
-    total_exposure = df['US $ Equiv'].sum()
-    accounts = len(df)
-    average_ticket = df['US $ Equiv'].mean() if accounts else 0
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric('Exposición total (US$)', format_currency(total_exposure))
-    col2.metric('Número de registros', f"{accounts:,}")
-    col3.metric('Ticket promedio (US$)', format_currency(average_ticket))
-
-
-def render_concentration_section(df: pd.DataFrame):
-    """Muestra indicadores de concentración (CR y HHI) por dimensión."""
-    st.subheader('Indicadores de concentración y diversificación')
+def render_concentration(df):
+    st.subheader("Indicadores de concentración")
 
     dims = [
         ('Country', 'País'),
@@ -128,383 +102,203 @@ def render_concentration_section(df: pd.DataFrame):
         ('Segment', 'Segmento'),
     ]
 
-    for col_name, label in dims:
-        if col_name not in df.columns:
+    for col, label in dims:
+        if col not in df.columns:
             continue
 
-        hhi_val = hhi(df, col_name)
-        cr3 = concentration_ratio(df, col_name, top_n=3) * 100
-        cr10 = concentration_ratio(df, col_name, top_n=10) * 100
+        with st.expander(f"Concentración por {label}"):
+            h = hhi(df, col)
+            cr3 = concentration_ratio(df, col, top=3) * 100
+            cr10 = concentration_ratio(df, col, top=10) * 100
 
-        with st.expander(f'{label}: concentración'):
             c1, c2, c3 = st.columns(3)
-            c1.metric('HHI', f"{hhi_val:,.0f}")
-            c2.metric('CR3', f"{cr3:,.1f}%")
-            c3.metric('CR10', f"{cr10:,.1f}%")
+            c1.metric("HHI", f"{h:,.0f}")
+            c2.metric("CR3", f"{cr3:.1f}%")
+            c3.metric("CR10", f"{cr10:.1f}%")
 
-            st.caption(
-                f"• HHI mide concentración (0–10.000). "
-                f"Valores > 2.500 suelen indicar alta concentración.\n"
-                f"• CR3/CR10 muestran qué % del portafolio se concentra "
-                f"en las 3/10 categorías principales de {label.lower()}."
-            )
+# ============================================
+# RENDER: BREAKDOWNS (BARRAS + PIE)
+# ============================================
 
-
-def render_breakdown(
-    df: pd.DataFrame,
-    column: str,
-    title: str,
-    filter_label: str,
-    include_pie: bool = False,
-):
-    """
-    Desglose por dimensión con:
-    - Filtro independiente para barras
-    - Opcionalmente, gráfico de pie
-    - Tabla formateada
-    """
+def render_breakdown(df, column, title, label, include_pie=True):
     if column not in df.columns:
         return
 
     st.subheader(title)
 
-    choices = sorted(df[column].unique())
+    options = sorted(df[column].unique())
+    col1, col2 = st.columns(2)
 
-    left_col, right_col = st.columns(2)
+    # ----- BARRAS -----
+    with col1:
+        sel = st.multiselect(f"{label} visibles", options, default=options)
+        selection = sel if sel else options
+        df_f = df[df[column].isin(selection)]
 
-    # ------------------------
-    # BARRAS
-    # ------------------------
-    with left_col:
-        bar_selection = st.multiselect(
-            f'{filter_label} visibles (barras)',
-            choices,
-            default=choices,
-            key=f"filter_bar_{column}",
-        )
-        bar_values = bar_selection if bar_selection else choices
-        bar_filtered = df[df[column].isin(bar_values)]
+        g = df_f.groupby(column)['US $ Equiv'].sum().reset_index()
+        total = g['US $ Equiv'].sum()
+        g['Porcentaje'] = g['US $ Equiv'] / total
 
-        bar_grouped = (
-            bar_filtered.groupby(column)['US $ Equiv']
-            .sum()
-            .reset_index()
-            .sort_values('US $ Equiv', ascending=False)
-        )
-
-        total_exposure = bar_grouped['US $ Equiv'].sum()
-        bar_grouped['Porcentaje de exposición'] = (
-            bar_grouped['US $ Equiv'] / total_exposure * 100
-        ).fillna(0)
-
-        bar_chart = (
-            alt.Chart(bar_grouped)
-            .mark_bar(color='#2563eb')
+        chart = (
+            alt.Chart(g)
+            .mark_bar(color="#2563eb")
             .encode(
-                x=alt.X('US $ Equiv:Q', title='Exposición (US$)'),
-                y=alt.Y(f'{column}:N', sort='-x', title=filter_label),
+                x=alt.X("US $ Equiv:Q", title="Exposición (US$)"),
+                y=alt.Y(f"{column}:N", sort="-x", title=label),
                 tooltip=[
-                    alt.Tooltip(f'{column}:N', title=filter_label),
-                    alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
-                    alt.Tooltip(
-                        'Porcentaje de exposición:Q',
-                        title='Porcentaje',
-                        format='.1f%'
-                    ),
-                ],
+                    f"{column}:N",
+                    alt.Tooltip("US $ Equiv:Q", format=",.0f"),
+                    alt.Tooltip("Porcentaje:Q", format=".1%"),
+                ]
             )
         )
+        st.altair_chart(chart, use_container_width=True)
 
-        st.altair_chart(bar_chart, use_container_width=True)
-
-    # ------------------------
-    # PIE
-    # ------------------------
+    # ----- PIE -----
     if include_pie:
-        with right_col:
-            pie_selection = st.multiselect(
-                f'{filter_label} visibles (pie)',
-                choices,
-                default=choices,
-                key=f"filter_pie_{column}",
-            )
-            pie_values = pie_selection if pie_selection else choices
-            pie_filtered = df[df[column].isin(pie_values)]
+        with col2:
+            sel2 = st.multiselect(f"{label} (Pie)", options, default=options)
+            selection2 = sel2 if sel2 else options
+            df_p = df[df[column].isin(selection2)]
 
-            pie_grouped = (
-                pie_filtered.groupby(column)['US $ Equiv']
-                .sum()
-                .reset_index()
-                .sort_values('US $ Equiv', ascending=False)
-            )
+            g2 = df_p.groupby(column)['US $ Equiv'].sum().reset_index()
+            g2['Porcentaje'] = g2['US $ Equiv'] / g2['US $ Equiv'].sum()
 
-            pie_total = pie_grouped['US $ Equiv'].sum()
-            pie_grouped['Porcentaje de exposición'] = (
-                pie_grouped['US $ Equiv'] / pie_total * 100
-            ).fillna(0)
-
-            pie_chart = (
-                alt.Chart(pie_grouped)
+            pie = (
+                alt.Chart(g2)
                 .mark_arc()
                 .encode(
-                    theta=alt.Theta('US $ Equiv:Q', stack=True),
-                    color=alt.Color(f'{column}:N', title=filter_label),
+                    theta="US $ Equiv:Q",
+                    color=f"{column}:N",
                     tooltip=[
-                        alt.Tooltip(f'{column}:N', title=filter_label),
-                        alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
-                        alt.Tooltip(
-                            'Porcentaje de exposición:Q',
-                            title='Porcentaje',
-                            format='.1f%'
-                        ),
+                        f"{column}:N",
+                        alt.Tooltip("US $ Equiv:Q", format=",.0f"),
+                        alt.Tooltip("Porcentaje:Q", format=".1%"),
                     ],
                 )
             )
+            st.altair_chart(pie, use_container_width=True)
 
-            st.altair_chart(pie_chart, use_container_width=True)
+# ============================================
+# RENDER: HEATMAP
+# ============================================
 
-    # ------------------------
-    # TABLA
-    # ------------------------
-    display_df = bar_grouped.rename(columns={'US $ Equiv': 'Exposición (US$)'})
-    display_df['Exposición (US$)'] = display_df['Exposición (US$)'].apply(
-        format_currency
-    )
-    display_df['Porcentaje de exposición'] = display_df[
-        'Porcentaje de exposición'
-    ].map(lambda x: f"{x:.1f}%")
-
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-
-def render_heatmap_country_sector(df: pd.DataFrame):
-    """Mapa de calor País × Sector por exposición."""
+def render_heatmap(df):
     if not {'Country', 'Sector'}.issubset(df.columns):
         return
 
-    st.subheader('Mapa de calor País vs Sector')
+    st.subheader("Mapa de calor País vs Sector")
 
-    grouped = (
-        df.groupby(['Country', 'Sector'])['US $ Equiv']
-        .sum()
-        .reset_index()
-    )
+    g = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
 
-    if grouped.empty:
-        st.info("No hay datos para construir el mapa de calor con los filtros actuales.")
-        return
-
-    heatmap = (
-        alt.Chart(grouped)
+    heat = (
+        alt.Chart(g)
         .mark_rect()
         .encode(
-            x=alt.X('Sector:N', title='Sector'),
-            y=alt.Y('Country:N', title='País'),
-            color=alt.Color(
-                'US $ Equiv:Q',
-                title='Exposición (US$)',
-                scale=alt.Scale(scheme='blues')
-            ),
-            tooltip=[
-                alt.Tooltip('Country:N', title='País'),
-                alt.Tooltip('Sector:N', title='Sector'),
-                alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
-            ],
+            x=alt.X("Sector:N"),
+            y=alt.Y("Country:N"),
+            color=alt.Color("US $ Equiv:Q", scale=alt.Scale(scheme="blues")),
+            tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
         )
         .properties(height=400)
     )
+    st.altair_chart(heat, use_container_width=True)
 
-    st.altair_chart(heatmap, use_container_width=True)
+# ============================================
+# RENDER: TOP / BOTTOM
+# ============================================
 
+def render_top_bottom(df, n=10):
+    st.subheader("Top / Bottom operaciones")
 
-def render_top_bottom_operations(df: pd.DataFrame, n: int = 10):
-    """Muestra las top y bottom operaciones por exposición."""
-    st.subheader(f'Top y bottom {n} operaciones por exposición')
+    amt = "US $ Equiv"
+    ordered = df.sort_values(amt, ascending=False)
 
-    if df.empty:
-        st.info("No hay operaciones para mostrar con los filtros actuales.")
-        return
-
-    amount_col = 'US $ Equiv'
-
-    cols_show = [
-        'Short name',
-        'Country',
-        'Segment',
-        'Product Type',
-        'Sector',
-        'Sector 2',
-        amount_col,
-    ]
-    cols_show = [c for c in cols_show if c in df.columns]
-
-    ranked = df.sort_values(amount_col, ascending=False)
-
-    top = ranked.head(n)[cols_show].copy()
-    bottom = ranked[ranked[amount_col] > 0].tail(n)[cols_show].copy()
+    top = ordered.head(n)
+    bottom = ordered[ordered[amt] > 0].tail(n)
 
     for d in (top, bottom):
-        if amount_col in d.columns:
-            d[amount_col] = d[amount_col].apply(format_currency)
+        d[amt] = d[amt].apply(format_currency)
 
-    col1, col2 = st.columns(2)
+    c1, c2 = st.columns(2)
+    c1.write(f"### Top {n}")
+    c1.dataframe(top, use_container_width=True)
 
-    with col1:
-        st.markdown(f"###### Top {n} por exposición")
-        st.dataframe(top, use_container_width=True, hide_index=True)
+    c2.write(f"### Bottom {n}")
+    c2.dataframe(bottom, use_container_width=True)
 
-    with col2:
-        st.markdown(f"###### Bottom {n} por exposición (mayores a 0)")
-        st.dataframe(bottom, use_container_width=True, hide_index=True)
-
-
-# =========================
+# ============================================
 # APP PRINCIPAL
-# =========================
+# ============================================
 
-portfolio_df = load_portfolio_data(
+df = load_portfolio_data(
     PORTFOLIO_FILE,
     PORTFOLIO_FILE.stat().st_mtime,
 )
 
-st.title('Análisis del portafolio corporativo')
-st.caption('Explora la exposición y concentración por país, segmento, producto y sector.')
+st.title("Análisis del Portafolio Corporativo")
+st.caption("Filtros dinámicos, concentración, KPIs y desglose por dimensiones.")
 
-st.divider()
+# ------------------------------
+# FILTROS LATERALES
+# ------------------------------
 
-# -------------------------
-# FILTROS GLOBALES
-# -------------------------
+fdf = df.copy()
 
-st.sidebar.header("Filtros globales")
+if "Country" in fdf.columns:
+    countries = sorted(fdf["Country"].unique())
+    sel = st.sidebar.multiselect("País", countries, default=countries)
+    fdf = fdf[fdf["Country"].isin(sel)]
 
-filtered_df = portfolio_df.copy()
+if "Segment" in fdf.columns:
+    seg = sorted(fdf["Segment"].unique())
+    sel = st.sidebar.multiselect("Segmento", seg, default=seg)
+    fdf = fdf[fdf["Segment"].isin(sel)]
 
-if 'Country' in portfolio_df.columns:
-    countries = sorted(portfolio_df['Country'].unique())
-    selected_countries = st.sidebar.multiselect(
-        'País',
-        countries,
-        default=countries,
-    )
-    if selected_countries:
-        filtered_df = filtered_df[filtered_df['Country'].isin(selected_countries)]
+if "Product Type" in fdf.columns:
+    prod = sorted(fdf["Product Type"].unique())
+    sel = st.sidebar.multiselect("Tipo de producto", prod, default=prod)
+    fdf = fdf[fdf["Product Type"].isin(sel)]
 
-if 'Segment' in portfolio_df.columns:
-    segments = sorted(portfolio_df['Segment'].unique())
-    selected_segments = st.sidebar.multiselect(
-        'Segmento',
-        segments,
-        default=segments,
-    )
-    if selected_segments:
-        filtered_df = filtered_df[filtered_df['Segment'].isin(selected_segments)]
+if "Sector" in fdf.columns:
+    sec = sorted(fdf["Sector"].unique())
+    sel = st.sidebar.multiselect("Sector", sec, default=sec)
+    fdf = fdf[fdf["Sector"].isin(sel)]
 
-if 'Product Type' in portfolio_df.columns:
-    products = sorted(portfolio_df['Product Type'].unique())
-    selected_products = st.sidebar.multiselect(
-        'Tipo de producto',
-        products,
-        default=products,
-    )
-    if selected_products:
-        filtered_df = filtered_df[filtered_df['Product Type'].isin(selected_products)]
-
-if 'Sector' in portfolio_df.columns:
-    sectors = sorted(portfolio_df['Sector'].unique())
-    selected_sectors = st.sidebar.multiselect(
-        'Sector',
-        sectors,
-        default=sectors,
-    )
-    if selected_sectors:
-        filtered_df = filtered_df[filtered_df['Sector'].isin(selected_sectors)]
-
-# Si con los filtros se vacía el dataset
-if filtered_df.empty:
-    st.warning("No hay datos con la combinación de filtros seleccionada.")
+if fdf.empty:
+    st.warning("No hay datos para mostrar con estos filtros.")
     st.stop()
 
-# -------------------------
-# RESUMEN GENERAL
-# -------------------------
+# ------------------------------
+# SECCIONES
+# ------------------------------
 
-st.header('Resumen general')
-render_kpis(filtered_df)
-
-st.divider()
-
-# -------------------------
-# CONCENTRACIÓN
-# -------------------------
-
-render_concentration_section(filtered_df)
+st.header("Resumen General")
+render_kpis(fdf)
 
 st.divider()
 
-# -------------------------
-# DESGLOSE POR DIMENSIONES
-# -------------------------
-
-st.header('Desglose por dimensiones')
-
-render_breakdown(
-    filtered_df,
-    'Country',
-    'Exposición por país',
-    'País',
-    include_pie=True,
-)
-render_breakdown(
-    filtered_df,
-    'Segment',
-    'Exposición por segmento',
-    'Segmento',
-    include_pie=True,
-)
-render_breakdown(
-    filtered_df,
-    'Product Type',
-    'Exposición por tipo de producto',
-    'Tipo de producto',
-    include_pie=True,
-)
-render_breakdown(
-    filtered_df,
-    'Sector',
-    'Exposición por sector',
-    'Sector',
-    include_pie=True,
-)
-render_breakdown(
-    filtered_df,
-    'Sector 2',
-    'Exposición por Sector 2',
-    'Sector 2',
-    include_pie=True,
-)
+render_concentration(fdf)
 
 st.divider()
 
-# -------------------------
-# MAPA DE CALOR PAÍS × SECTOR
-# -------------------------
+st.header("Desglose por Dimensiones")
 
-render_heatmap_country_sector(filtered_df)
-
-st.divider()
-
-# -------------------------
-# TOP / BOTTOM OPERACIONES
-# -------------------------
-
-render_top_bottom_operations(filtered_df, n=10)
+render_breakdown(fdf, "Country", "Exposición por país", "País")
+render_breakdown(fdf, "Segment", "Exposición por segmento", "Segmento")
+render_breakdown(fdf, "Product Type", "Exposición por tipo de producto", "Tipo de producto")
+render_breakdown(fdf, "Sector", "Exposición por sector", "Sector")
+render_breakdown(fdf, "Sector 2", "Exposición por Sector 2", "Sector 2")
 
 st.divider()
 
-# -------------------------
-# DETALLE DE OPERACIONES
-# -------------------------
+render_heatmap(fdf)
 
-st.header('Detalle de operaciones filtradas')
-st.dataframe(filtered_df, use_container_width=True)
+st.divider()
+
+render_top_bottom(fdf)
+
+st.divider()
+
+st.header("Detalle Completo")
+st.dataframe(fdf, use_container_width=True)
