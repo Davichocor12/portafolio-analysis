@@ -16,10 +16,14 @@ PORTFOLIO_FILE = (
 
 
 @st.cache_data
-def load_portfolio_data():
-    """Read and clean the corporate portfolio dataset."""
+def load_portfolio_data(file_path: Path, last_modified: float):
+    """Read and clean the corporate portfolio dataset.
 
-    df = pd.read_csv(PORTFOLIO_FILE)
+    The ``last_modified`` parameter ensures Streamlit invalidates the cache
+    whenever the underlying data file is updated.
+    """
+
+    df = pd.read_csv(file_path)
     df.columns = [col.strip() for col in df.columns]
 
     amount_col = 'US $ Equiv'
@@ -106,7 +110,10 @@ def render_breakdown(df: pd.DataFrame, column: str, title: str):
     st.dataframe(grouped, use_container_width=True, hide_index=True)
 
 
-portfolio_df = load_portfolio_data()
+portfolio_df = load_portfolio_data(
+    PORTFOLIO_FILE,
+    PORTFOLIO_FILE.stat().st_mtime,
+)
 
 st.title('Análisis del portafolio corporativo')
 st.caption('Explora la exposición y concentración por país, segmento y producto.')
