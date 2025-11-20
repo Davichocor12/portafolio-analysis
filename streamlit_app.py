@@ -88,6 +88,10 @@ def load_portfolio_data(file_path: Path, last_modified: float):
             df[c] = df[c].astype(str).str.strip().fillna("Sin especificar")
             df[c] = df[c].replace("nan", "Sin especificar")
 
+    # 5. ORR numérico para filtros de riesgo
+    if 'ORR' in df.columns:
+        df['ORR_num'] = pd.to_numeric(df['ORR'], errors='coerce')
+
     return df
 
 # ============================================
@@ -174,6 +178,11 @@ def render_breakdown(df, column, title, label, include_pie=True):
             .sort_values('US $ Equiv', ascending=False)
         )
 
+        g = g[g['US $ Equiv'] > 0]
+        if g.empty:
+            st.info("Solo hay valores en cero para esta selección.")
+            return
+
         total = g['US $ Equiv'].sum()
         g['Porcentaje'] = g['US $ Equiv'] / total
 
@@ -209,6 +218,18 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 .reset_index()
             )
 
+            g2 = g2[g2['US $ Equiv'] > 0]
+            if g2.empty:
+                st.info("Solo hay valores en cero para esta selección.")
+                return
+
+            total_pie = g2['US $ Equiv'].sum()
+            if total_pie <= 0:
+                st.info("No hay valores positivos para el pie chart.")
+                return
+
+            g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
+
             pie = (
                 alt.Chart(g2)
                 .mark_arc()
@@ -217,11 +238,23 @@ def render_breakdown(df, column, title, label, include_pie=True):
                     color=f"{column}:N",
                     tooltip=[
                         f"{column}:N",
-                        alt.Tooltip("US $ Equiv:Q", format=",.0f")
+                        alt.Tooltip("US $ Equiv:Q", format=",.0f"),
+                        alt.Tooltip("Porcentaje:Q", format=".1%"),
                     ],
                 )
             )
-            st.altair_chart(pie, use_container_width=True)
+
+            labels = (
+                alt.Chart(g2)
+                .mark_text(radius=120, size=12)
+                .encode(
+                    theta="US $ Equiv:Q",
+                    text=alt.Text("Porcentaje:Q", format=".1%"),
+                    color=f"{column}:N",
+                )
+            )
+
+            st.altair_chart(pie + labels, use_container_width=True)
 
 
 # ============================================
@@ -306,6 +339,25 @@ with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
         sel = st.multiselect(label, options, default=options)
         fdf = fdf[fdf[col].isin(sel)]
 
+    # Filtro de riesgo por ORR (mayor número = mayor riesgo)
+    if 'ORR_num' in fdf.columns:
+        orr_vals = fdf['ORR_num'].dropna()
+        if not orr_vals.empty:
+            min_orr = float(orr_vals.min())
+            max_orr = float(orr_vals.max())
+            step = 0.5 if (orr_vals % 1 != 0).any() else 1.0
+            selected_min = st.slider(
+                "ORR mínimo (riesgo)",
+                min_value=min_orr,
+                max_value=max_orr,
+                value=min_orr,
+                step=step,
+                help="Muestra únicamente operaciones con ORR igual o superior al valor seleccionado.",
+            )
+            fdf = fdf[fdf['ORR_num'].notna() & (fdf['ORR_num'] >= selected_min)]
+        else:
+            st.info("No hay datos numéricos de ORR para filtrar.")
+
 if fdf.empty:
     st.warning("No hay datos disponibles con esta combinación de filtros.")
     st.stop()
@@ -319,27 +371,32 @@ render_kpis(fdf)
 
 st.divider()
 
-render_concentration(fdf)
+plot_df = fdf[fdf['US $ Equiv'] > 0]
 
-st.divider()
+if plot_df.empty:
+    st.warning("Solo hay valores en cero después de aplicar los filtros; no se mostrarán gráficos.")
+else:
+    render_concentration(plot_df)
 
-st.header("Desglose por Dimensiones")
+    st.divider()
 
-render_breakdown(fdf, "Country", "Exposición por país", "País")
-render_breakdown(fdf, "Segment", "Exposición por segmento", "Segmento")
-render_breakdown(fdf, "Product Type", "Exposición por tipo de producto", "Tipo de producto")
-render_breakdown(fdf, "Sector", "Exposición por sector", "Sector")
-render_breakdown(fdf, "Sector 2", "Exposición por Sector 2", "Sector 2")
+    st.header("Desglose por Dimensiones")
 
-st.divider()
+    render_breakdown(plot_df, "Country", "Exposición por país", "País")
+    render_breakdown(plot_df, "Segment", "Exposición por segmento", "Segmento")
+    render_breakdown(plot_df, "Product Type", "Exposición por tipo de producto", "Tipo de producto")
+    render_breakdown(plot_df, "Sector", "Exposición por sector", "Sector")
+    render_breakdown(plot_df, "Sector 2", "Exposición por Sector 2", "Sector 2")
 
-render_heatmap(fdf)
+    st.divider()
 
-st.divider()
+    render_heatmap(plot_df)
 
-render_top_bottom(fdf)
+    st.divider()
 
-st.divider()
+    render_top_bottom(plot_df)
+
+    st.divider()
 
 st.header("Detalle Completo")
 st.dataframe(fdf, use_container_width=True)
