@@ -1,151 +1,132 @@
 import streamlit as st
 import pandas as pd
-import math
 from pathlib import Path
 
-# Set the title and favicon that appear in the Browser's tab bar.
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title='Análisis de portafolio',
+    page_icon=':bar_chart:',
+    layout='wide',
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+PORTFOLIO_FILE = (
+    Path(__file__).parent
+    / 'data'
+    / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V2.csv'
+)
+
 
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_portfolio_data():
+    """Read and clean the corporate portfolio dataset."""
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+    df = pd.read_csv(PORTFOLIO_FILE)
+    df.columns = [col.strip() for col in df.columns]
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    amount_col = 'US $ Equiv'
+    df[amount_col] = (
+        df[amount_col]
+        .astype(str)
+        .str.replace('[^0-9.-]', '', regex=True)
+        .replace('', pd.NA)
+    )
+    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+    for column in ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']:
+        df[column] = df[column].fillna('Sin especificar')
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
+    return df
+
+
+def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply sidebar filters to the dataframe."""
+
+    with st.sidebar:
+        st.header('Filtros del portafolio')
+
+        filter_options = {}
+        for column, label in [
+            ('Country', 'Países'),
+            ('Segment', 'Segmentos'),
+            ('Product Type', 'Tipos de producto'),
+            ('Sector', 'Sectores'),
+            ('Sector 2', 'Sector 2'),
+        ]:
+            choices = sorted(df[column].unique())
+            selection = st.multiselect(
+                label,
+                choices,
+                default=choices,
+            )
+            filter_options[column] = selection if selection else choices
+
+        min_amount, max_amount = st.slider(
+            'Rango de exposición (US$)',
+            float(df['US $ Equiv'].min()),
+            float(df['US $ Equiv'].max()),
+            (float(df['US $ Equiv'].min()), float(df['US $ Equiv'].max())),
+        )
+
+    filtered_df = df[
+        (df['Country'].isin(filter_options['Country']))
+        & (df['Segment'].isin(filter_options['Segment']))
+        & (df['Product Type'].isin(filter_options['Product Type']))
+        & (df['Sector'].isin(filter_options['Sector']))
+        & (df['Sector 2'].isin(filter_options['Sector 2']))
+        & (df['US $ Equiv'].between(min_amount, max_amount))
+    ]
+
+    return filtered_df
+
+
+def render_kpis(df: pd.DataFrame):
+    """Display key metrics for the filtered dataset."""
+
+    total_exposure = df['US $ Equiv'].sum()
+    accounts = len(df)
+    average_ticket = df['US $ Equiv'].mean() if accounts else 0
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric('Exposición total (US$)', f"{total_exposure:,.0f}")
+    col2.metric('Número de registros', f"{accounts:,}")
+    col3.metric('Ticket promedio (US$)', f"{average_ticket:,.0f}")
+
+
+def render_breakdown(df: pd.DataFrame, column: str, title: str):
+    """Render a bar chart with exposure grouped by the provided column."""
+
+    grouped = (
+        df.groupby(column)['US $ Equiv']
+        .sum()
+        .reset_index()
+        .sort_values('US $ Equiv', ascending=False)
     )
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+    st.subheader(title)
+    st.bar_chart(grouped, x=column, y='US $ Equiv')
+    st.dataframe(grouped, use_container_width=True, hide_index=True)
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+portfolio_df = load_portfolio_data()
 
-st.header(f'GDP in {to_year}', divider='gray')
+st.title('Análisis del portafolio corporativo')
+st.caption('Explora la exposición y concentración por país, segmento y producto.')
 
-''
+filtered_portfolio = apply_filters(portfolio_df)
 
-cols = st.columns(4)
+st.divider()
+st.header('Resumen general')
+render_kpis(filtered_portfolio)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+st.divider()
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+st.header('Desglose por dimensiones')
+render_breakdown(filtered_portfolio, 'Country', 'Exposición por país')
+render_breakdown(filtered_portfolio, 'Segment', 'Exposición por segmento')
+render_breakdown(filtered_portfolio, 'Product Type', 'Exposición por tipo de producto')
+render_breakdown(filtered_portfolio, 'Sector', 'Exposición por sector')
+render_breakdown(filtered_portfolio, 'Sector 2', 'Exposición por Sector 2')
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+st.divider()
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+st.header('Detalle de operaciones filtradas')
+st.dataframe(filtered_portfolio, use_container_width=True)
