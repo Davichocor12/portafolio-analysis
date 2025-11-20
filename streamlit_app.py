@@ -275,50 +275,6 @@ def render_breakdown(df, column, title, label, include_pie=True):
             st.altair_chart(pie + labels, use_container_width=True)
 
 
-def render_orr_breakdowns(df):
-    """Desgloses específicos por riesgo ORR sin afectar los filtros generales."""
-
-    if 'ORR_num' not in df.columns:
-        st.info("No hay columna ORR disponible para desgloses.")
-        return
-
-    orr_vals = df['ORR_num'].dropna()
-    if orr_vals.empty:
-        st.info("No hay datos numéricos de ORR para desgloses.")
-        return
-
-    st.header("Desglose por ORR (riesgo)")
-
-    min_orr = float(orr_vals.min())
-    max_orr = float(orr_vals.max())
-    step = 0.5 if (orr_vals % 1 != 0).any() else 1.0
-
-    selected_min = st.slider(
-        "ORR mínimo para este desglose",
-        min_value=min_orr,
-        max_value=max_orr,
-        value=min_orr,
-        step=step,
-        help="Visualiza solo las operaciones con ORR igual o superior al valor seleccionado.",
-        key="orr_breakdown_slider",
-    )
-
-    risk_df = df[df['ORR_num'].notna() & (df['ORR_num'] >= selected_min)]
-    plot_df = risk_df[risk_df['US $ Equiv'] > 0]
-
-    if plot_df.empty:
-        st.info("No hay valores positivos para este umbral de ORR.")
-        return
-
-    st.caption(
-        "Los gráficos siguientes muestran solo las operaciones que cumplen el ORR mínimo seleccionado."
-    )
-
-    render_breakdown(plot_df, "Country", "Exposición por país (ORR)", "País", include_pie=False)
-    render_breakdown(plot_df, "Sector", "Exposición por sector (ORR)", "Sector", include_pie=False)
-    render_breakdown(plot_df, "Segment", "Exposición por segmento (ORR)", "Segmento", include_pie=False)
-
-
 # ============================================
 # RENDER: HEATMAP
 # ============================================
@@ -404,6 +360,25 @@ with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
         sel = st.multiselect(label, options, default=options)
         fdf = fdf[fdf[col].isin(sel)]
 
+    # Filtro de riesgo por ORR (mayor número = mayor riesgo)
+    if 'ORR_num' in fdf.columns:
+        orr_vals = fdf['ORR_num'].dropna()
+        if not orr_vals.empty:
+            min_orr = float(orr_vals.min())
+            max_orr = float(orr_vals.max())
+            step = 0.5 if (orr_vals % 1 != 0).any() else 1.0
+            selected_min = st.slider(
+                "ORR mínimo (riesgo)",
+                min_value=min_orr,
+                max_value=max_orr,
+                value=min_orr,
+                step=step,
+                help="Muestra únicamente operaciones con ORR igual o superior al valor seleccionado.",
+            )
+            fdf = fdf[fdf['ORR_num'].notna() & (fdf['ORR_num'] >= selected_min)]
+        else:
+            st.info("No hay datos numéricos de ORR para filtrar.")
+
 if fdf.empty:
     st.warning("No hay datos disponibles con esta combinación de filtros.")
     st.stop()
@@ -445,8 +420,6 @@ else:
     render_top_bottom(plot_df)
 
     st.divider()
-
-    render_orr_breakdowns(fdf)
 
 st.header("Detalle Completo")
 st.dataframe(fdf, use_container_width=True)
