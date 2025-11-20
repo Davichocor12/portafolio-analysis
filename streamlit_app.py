@@ -3,6 +3,19 @@ import pandas as pd
 import altair as alt
 from pathlib import Path
 
+CATEGORY10 = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+]
+
 # ============================================
 # CONFIGURACIÓN GENERAL
 # ============================================
@@ -185,11 +198,14 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 tooltip=[
                     f"{column}:N",
                     alt.Tooltip("US $ Equiv:Q", format=",.0f"),
-                    alt.Tooltip("Porcentaje:Q", format=".1%")
+                    alt.Tooltip("Porcentaje:Q", format=".1%"),
                 ],
             )
         )
         st.altair_chart(chart, use_container_width=True)
+        st.markdown(
+            f"**Total {label.lower()} seleccionado:** {format_currency(total)}",
+        )
 
     # ----- PIE -----
     if include_pie:
@@ -219,12 +235,19 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 return
 
             g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
+
+            domain = g2[column].tolist()
+            palette = [CATEGORY10[i % len(CATEGORY10)] for i in range(len(domain))]
+            color_encoding = alt.Color(
+                f"{column}:N", scale=alt.Scale(domain=domain, range=palette), legend=None
+            )
+
             pie = (
                 alt.Chart(g2)
                 .mark_arc()
                 .encode(
                     theta="US $ Equiv:Q",
-                    color=f"{column}:N",
+                    color=color_encoding,
                     tooltip=[
                         f"{column}:N",
                         alt.Tooltip("US $ Equiv:Q", format=",.0f"),
@@ -237,12 +260,22 @@ def render_breakdown(df, column, title, label, include_pie=True):
             with pie_col:
                 st.altair_chart(pie, use_container_width=True)
 
-            legend_lines = [
-                f"- {row[column]}: {(row['Porcentaje'] * 100):.1f}%"
-                for _, row in g2.sort_values('Porcentaje', ascending=False).iterrows()
-            ]
+            legend_lines = []
+            for idx, (_, row) in enumerate(
+                g2.sort_values('Porcentaje', ascending=False).iterrows()
+            ):
+                color = palette[idx % len(palette)]
+                legend_lines.append(
+                    (
+                        "<div style='display:flex;align-items:center;margin-bottom:6px;'>"
+                        f"<span style='width:14px;height:14px;display:inline-block;"
+                        f"border-radius:3px;background:{color};margin-right:8px;'></span>"
+                        f"<span>{row[column]}: {(row['Porcentaje'] * 100):.1f}%</span>"
+                        "</div>"
+                    )
+                )
             with legend_col:
-                st.markdown("\n".join(legend_lines))
+                st.markdown("".join(legend_lines), unsafe_allow_html=True)
 
 
 # ============================================
@@ -262,6 +295,56 @@ def render_heatmap(df):
             y=alt.Y("Country:N"),
             color=alt.Color("US $ Equiv:Q", scale=alt.Scale(scheme="blues")),
             tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
+        )
+        .properties(height=380)
+    )
+
+    st.altair_chart(heat, use_container_width=True)
+
+
+def render_orr_heatmap(df):
+    st.subheader("Mapa de calor ORR ponderado País vs Sector")
+
+    if 'ORR_num' not in df.columns:
+        st.info("No hay datos de ORR disponibles para calcular el mapa de calor.")
+        return
+
+    df_orr = df[(df['ORR_num'].notna()) & (df['US $ Equiv'] > 0)].copy()
+    if df_orr.empty:
+        st.info("No hay registros con ORR y exposición positiva para esta selección.")
+        return
+
+    grouped = (
+        df_orr.groupby(['Country', 'Sector'])
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "ORR ponderado": weighted_avg_orr(g),
+                    "Exposición": g['US $ Equiv'].sum(),
+                }
+            )
+        )
+        .reset_index()
+    )
+
+    grouped = grouped[grouped['Exposición'] > 0]
+    if grouped.empty:
+        st.info("No hay exposición positiva para graficar en el mapa de calor de ORR.")
+        return
+
+    heat = (
+        alt.Chart(grouped)
+        .mark_rect()
+        .encode(
+            x=alt.X("Sector:N"),
+            y=alt.Y("Country:N"),
+            color=alt.Color("ORR ponderado:Q", scale=alt.Scale(scheme="greens")),
+            tooltip=[
+                "Country",
+                "Sector",
+                alt.Tooltip("ORR ponderado:Q", format=".2f"),
+                alt.Tooltip("Exposición:Q", format=",.0f"),
+            ],
         )
         .properties(height=380)
     )
@@ -524,6 +607,8 @@ else:
     st.divider()
 
     render_heatmap(plot_df)
+
+    render_orr_heatmap(plot_df)
 
     st.divider()
 
