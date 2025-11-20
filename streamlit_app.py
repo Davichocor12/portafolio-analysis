@@ -151,18 +151,14 @@ def render_kpis(df):
     c3.metric("Ticket promedio (US$)", format_currency(avg))
 
 
-def maturity_bucket(days: float) -> str:
-    if pd.isna(days):
+def calendar_year_bucket(maturity_date: pd.Timestamp, today: pd.Timestamp) -> str:
+    """Asignar bucket por año calendario para la fecha de madurez."""
+
+    if pd.isna(maturity_date):
         return "Sin fecha"
-    if days < 0:
+    if maturity_date < today:
         return "Vencido"
-    if days <= 365:
-        return "0-1 año"
-    if days <= 3 * 365:
-        return "1-3 años"
-    if days <= 5 * 365:
-        return "3-5 años"
-    return "Más de 5 años"
+    return str(maturity_date.year)
 
 
 def render_maturity_analysis(df):
@@ -181,8 +177,10 @@ def render_maturity_analysis(df):
     maturity_df['Días a vencimiento'] = (
         maturity_df['Maturity date'] - today
     ).dt.days
-    maturity_df['Bucket de plazo'] = maturity_df['Días a vencimiento'].apply(
-        maturity_bucket
+
+    max_maturity = maturity_df['Maturity date'].max()
+    maturity_df['Bucket de plazo'] = maturity_df['Maturity date'].apply(
+        calendar_year_bucket, args=(today,)
     )
 
     total_exposure = maturity_df['US $ Equiv'].sum()
@@ -209,7 +207,7 @@ def render_maturity_analysis(df):
         else None
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Weighted Average Life (años)", f"{wal_years:.2f}" if pd.notna(wal_years) else "N/D")
     c2.metric(
         "Madurez promedio ponderada",
@@ -224,13 +222,13 @@ def render_maturity_analysis(df):
         "Próximo vencimiento",
         next_maturity.strftime("%d-%b-%Y") if next_maturity else "N/D",
     )
+    c5.metric(
+        "Madurez máxima",
+        max_maturity.strftime("%d-%b-%Y") if pd.notna(max_maturity) else "N/D",
+    )
 
-    bucket_order = [
-        "Vencido",
-        "0-1 año",
-        "1-3 años",
-        "3-5 años",
-        "Más de 5 años",
+    bucket_order = ["Vencido"] + [
+        str(year) for year in range(today.year, max_maturity.year + 1)
     ]
     bucket_summary = (
         maturity_df.groupby('Bucket de plazo')['US $ Equiv']
@@ -243,7 +241,11 @@ def render_maturity_analysis(df):
     )
     bucket_summary = bucket_summary.sort_values('Bucket de plazo').dropna()
 
-    st.markdown("### Exposición por plazo")
+    st.markdown("### Exposición por plazo (años calendario)")
+    st.caption(
+        f"Buckets definidos por año calendario a partir del 1-Jan-{today.year}. "
+        "Las sumas de los buckets corresponden a años completos."
+    )
     st.dataframe(
         bucket_summary.assign(
             Exposición=bucket_summary['Exposición'].apply(format_currency),
