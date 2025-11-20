@@ -82,11 +82,17 @@ def load_portfolio_data(file_path: Path, last_modified: float):
     df['US $ Equiv'] = df['US $ Equiv'] * SCALE_FACTOR
 
     # 4. Normalizar categorías (SIN NULOS)
-    categorical_cols = ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']
+    categorical_cols = ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2', 'Delinq band']
     for c in categorical_cols:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip().fillna("Sin especificar")
             df[c] = df[c].replace("nan", "Sin especificar")
+
+    # 4.1. Columna simplificada de morosidad
+    if 'Delinq band' in df.columns:
+        df['Delinq band simple'] = df['Delinq band'].apply(
+            lambda x: "No" if str(x).strip().lower() == "clean" else "Sí"
+        )
 
     # 5. ORR numérico para filtros de riesgo
     if 'ORR' in df.columns:
@@ -213,6 +219,7 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 return
 
             g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
+            g2['Etiqueta'] = g2[column] + ' (' + (g2['Porcentaje'] * 100).round(1).astype(str) + '%)'
 
             pie = (
                 alt.Chart(g2)
@@ -233,7 +240,7 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 .mark_text(radius=120, size=12)
                 .encode(
                     theta="US $ Equiv:Q",
-                    text=alt.Text("Porcentaje:Q", format=".1%"),
+                    text="Etiqueta:N",
                     color=f"{column}:N",
                 )
             )
@@ -354,6 +361,64 @@ def render_orr_by_dimension(df):
 
     st.altair_chart(chart, use_container_width=True)
 
+
+def render_exposure_by_dimension(df):
+    st.subheader("Exposición (US$) por dimensión")
+
+    dims = {
+        "Country": "País",
+        "Segment": "Segmento",
+        "Product Type": "Tipo de producto",
+        "Sector": "Sector",
+        "Sector 2": "Sector 2",
+        "Delinq band": "Delinq band (rangos)",
+        "Delinq band simple": "¿Con morosidad? (Sí/No)",
+    }
+
+    available_dims = [d for d in dims if d in df.columns]
+    if not available_dims:
+        st.info("No hay dimensiones disponibles para graficar.")
+        return
+
+    dimension = st.selectbox(
+        "Dimensión para graficar exposición",
+        options=available_dims,
+        format_func=lambda x: dims[x],
+    )
+
+    category_options = sorted(df[dimension].unique())
+    selected_categories = st.multiselect(
+        f"{dims[dimension]} a mostrar", category_options, default=category_options
+    )
+
+    df_selected = df[df[dimension].isin(selected_categories)]
+    if df_selected.empty:
+        st.info("No hay datos disponibles para la selección realizada.")
+        return
+
+    exposure = (
+        df_selected.groupby(dimension)["US $ Equiv"].sum().reset_index(name="Exposición")
+    )
+    exposure = exposure[exposure["Exposición"] > 0]
+
+    if exposure.empty:
+        st.info("No hay exposición positiva para mostrar en esta dimensión.")
+        return
+
+    exposure = exposure.sort_values("Exposición", ascending=False)
+
+    chart = (
+        alt.Chart(exposure)
+        .mark_bar(color="#1d4ed8")
+        .encode(
+            x=alt.X("Exposición:Q", title="Exposición (US$)"),
+            y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
+            tooltip=[f"{dimension}:N", alt.Tooltip("Exposición:Q", format=",.0f")],
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
 # ============================================
 # RENDER: TOP / BOTTOM
 # ============================================
@@ -438,6 +503,9 @@ if plot_df.empty:
 else:
     st.header("Desglose por Dimensiones")
 
+    render_exposure_by_dimension(plot_df)
+    st.divider()
+
     render_orr_by_dimension(plot_df)
     st.divider()
 
@@ -446,6 +514,7 @@ else:
     render_breakdown(plot_df, "Product Type", "Exposición por tipo de producto", "Tipo de producto")
     render_breakdown(plot_df, "Sector", "Exposición por sector", "Sector")
     render_breakdown(plot_df, "Sector 2", "Exposición por Sector 2", "Sector 2")
+    render_breakdown(plot_df, "Delinq band", "Exposición por Delinq band", "Delinq band")
 
     st.divider()
 
