@@ -236,23 +236,34 @@ def render_maturity_analysis(df):
         .reset_index(name='Exposición')
     )
     bucket_summary['Participación'] = bucket_summary['Exposición'] / total_exposure
+    bucket_summary['Año (t=0 actual)'] = bucket_summary['Bucket de plazo'].apply(
+        lambda x: (int(x) - today.year) if str(x).isdigit() else None
+    )
     bucket_summary['Bucket de plazo'] = pd.Categorical(
         bucket_summary['Bucket de plazo'], bucket_order
     )
-    bucket_summary = bucket_summary.sort_values('Bucket de plazo').dropna()
+    bucket_summary = bucket_summary.sort_values('Bucket de plazo').dropna(
+        subset=['Bucket de plazo']
+    )
 
     st.markdown("### Exposición por plazo (años calendario)")
     st.caption(
         f"Buckets definidos por año calendario a partir del 1-Jan-{today.year}. "
         "Las sumas de los buckets corresponden a años completos."
     )
-    st.dataframe(
-        bucket_summary.assign(
-            Exposición=bucket_summary['Exposición'].apply(format_currency),
-            Participación=bucket_summary['Participación'].apply(lambda x: f"{x:.1%}"),
-        ),
-        use_container_width=True,
-    )
+    bucket_display = bucket_summary.assign(
+        Exposición=bucket_summary['Exposición'].apply(format_currency),
+        **{
+            "Año (t=0 actual)": bucket_summary['Año (t=0 actual)'].apply(
+                lambda v: f"{int(v):,}" if pd.notna(v) else "N/A"
+            )
+        },
+        Participación=bucket_summary['Participación'].apply(lambda x: f"{x:.1%}"),
+    )[
+        ["Bucket de plazo", "Año (t=0 actual)", "Exposición", "Participación"]
+    ]
+
+    st.dataframe(bucket_display, use_container_width=True)
 
     maturity_df['Año vencimiento'] = maturity_df['Maturity date'].dt.year
     year_summary = (
@@ -372,6 +383,7 @@ def render_breakdown(df, column, title, label, include_pie=True):
 
             domain = g2[column].tolist()
             palette = [CATEGORY10[i % len(CATEGORY10)] for i in range(len(domain))]
+            color_map = dict(zip(domain, palette))
             color_encoding = alt.Color(
                 f"{column}:N", scale=alt.Scale(domain=domain, range=palette), legend=None
             )
@@ -395,10 +407,8 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 st.altair_chart(pie, use_container_width=True)
 
             legend_lines = []
-            for idx, (_, row) in enumerate(
-                g2.sort_values('Porcentaje', ascending=False).iterrows()
-            ):
-                color = palette[idx % len(palette)]
+            for _, row in g2.sort_values('Porcentaje', ascending=False).iterrows():
+                color = color_map.get(row[column], "#999999")
                 legend_lines.append(
                     (
                         "<div style='display:flex;align-items:center;margin-bottom:6px;'>"
@@ -716,10 +726,6 @@ render_portfolio_summary(total_portfolio, fdf)
 st.markdown("### KPIs filtrados")
 render_kpis(fdf)
 
-render_maturity_analysis(fdf)
-
-st.divider()
-
 plot_df = fdf[fdf['US $ Equiv'] > 0]
 
 if plot_df.empty:
@@ -745,6 +751,10 @@ else:
     render_heatmap(plot_df)
 
     render_orr_heatmap(plot_df)
+
+    st.divider()
+
+    render_maturity_analysis(plot_df)
 
     st.divider()
 
