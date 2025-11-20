@@ -101,16 +101,13 @@ def load_portfolio_data(file_path: Path, last_modified: float):
 def format_currency(value: float) -> str:
     return f"{value:,.0f}"
 
-def concentration_ratio(df, column, top=10):
-    if df.empty: return 0
-    grouped = df.groupby(column)['US $ Equiv'].sum().sort_values(ascending=False)
-    return grouped.head(top).sum() / grouped.sum()
+def weighted_avg_orr(group: pd.DataFrame) -> float:
+    weights = group["US $ Equiv"]
+    values = group["ORR_num"]
 
-def hhi(df, column):
-    if df.empty: return 0
-    g = df.groupby(column)['US $ Equiv'].sum()
-    s = g / g.sum()
-    return float((s**2).sum() * 10_000)
+    if weights.sum() > 0:
+        return float((values * weights).sum() / weights.sum())
+    return float(values.mean()) if not values.empty else 0.0
 
 # ============================================
 # RENDER: KPIs
@@ -131,43 +128,12 @@ def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     """Mostrar comparación entre el portafolio completo y el filtrado actual."""
 
     filtered_total = df_filtered['US $ Equiv'].sum()
-    delta_abs = filtered_total - total_full
-    delta_pct = (filtered_total / total_full - 1) * 100 if total_full else 0
+    participation = (filtered_total / total_full * 100) if total_full else 0
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Portafolio total (US$)", format_currency(total_full))
-    c2.metric(
-        "Exposición filtrada (US$)",
-        format_currency(filtered_total),
-        delta=f"{delta_abs:,.0f}",
-        delta_color="off",
-    )
-    c3.metric("Variación vs total", f"{delta_pct:.1f}%")
-
-# ============================================
-# RENDER: CONCENTRACIÓN
-# ============================================
-
-def render_concentration(df):
-    st.subheader("Indicadores de concentración")
-
-    dims = [
-        ('Country', 'País'),
-        ('Sector', 'Sector'),
-        ('Segment', 'Segmento'),
-    ]
-
-    for col, label in dims:
-        with st.expander(f"Concentración por {label}"):
-            h = hhi(df, col)
-            cr3 = concentration_ratio(df, col, top=3) * 100
-            cr10 = concentration_ratio(df, col, top=10) * 100
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("HHI", f"{h:,.0f}")
-            c2.metric("CR3", f"{cr3:.1f}%")
-            c3.metric("CR10", f"{cr10:.1f}%")
-
+    c2.metric("Exposición filtrada (US$)", format_currency(filtered_total))
+    c3.metric("Participación del portafolio", f"{participation:.1f}%")
 
 # ============================================
 # RENDER: BREAKDOWNS (BARRAS + PIE)
@@ -299,6 +265,72 @@ def render_heatmap(df):
     st.altair_chart(heat, use_container_width=True)
 
 # ============================================
+# RENDER: ORR POR DIMENSIÓN
+# ============================================
+
+def render_orr_by_dimension(df):
+    st.subheader("ORR por dimensión")
+
+    if 'ORR_num' not in df.columns:
+        st.info("No hay datos de ORR disponibles para graficar.")
+        return
+
+    df_orr = df[df['ORR_num'].notna()].copy()
+    if df_orr.empty:
+        st.info("No hay datos de ORR disponibles para graficar.")
+        return
+
+    dims = {
+        "Country": "País",
+        "Segment": "Segmento",
+        "Product Type": "Tipo de producto",
+        "Sector": "Sector",
+        "Sector 2": "Sector 2",
+    }
+
+    dimension = st.selectbox(
+        "Dimensión para graficar ORR",
+        options=list(dims.keys()),
+        format_func=lambda x: dims[x],
+    )
+
+    grouped = (
+        df_orr.groupby(dimension)
+        .apply(
+            lambda g: pd.Series(
+                {
+                    "ORR ponderado": weighted_avg_orr(g),
+                    "Exposición": g["US $ Equiv"].sum(),
+                }
+            )
+        )
+        .reset_index()
+    )
+
+    grouped = grouped[grouped["Exposición"] > 0]
+    if grouped.empty:
+        st.info("No hay exposición positiva para esta dimensión.")
+        return
+
+    grouped = grouped.sort_values("ORR ponderado", ascending=False)
+
+    chart = (
+        alt.Chart(grouped)
+        .mark_bar(color="#10b981")
+        .encode(
+            x=alt.X("ORR ponderado:Q", title="ORR ponderado por exposición"),
+            y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
+            tooltip=[
+                f"{dimension}:N",
+                alt.Tooltip("ORR ponderado:Q", format=".2f"),
+                alt.Tooltip("Exposición:Q", format=",.0f"),
+            ],
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+# ============================================
 # RENDER: TOP / BOTTOM
 # ============================================
 
@@ -360,25 +392,6 @@ with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
         sel = st.multiselect(label, options, default=options)
         fdf = fdf[fdf[col].isin(sel)]
 
-    # Filtro de riesgo por ORR (mayor número = mayor riesgo)
-    if 'ORR_num' in fdf.columns:
-        orr_vals = fdf['ORR_num'].dropna()
-        if not orr_vals.empty:
-            min_orr = float(orr_vals.min())
-            max_orr = float(orr_vals.max())
-            step = 0.5 if (orr_vals % 1 != 0).any() else 1.0
-            selected_min = st.slider(
-                "ORR mínimo (riesgo)",
-                min_value=min_orr,
-                max_value=max_orr,
-                value=min_orr,
-                step=step,
-                help="Muestra únicamente operaciones con ORR igual o superior al valor seleccionado.",
-            )
-            fdf = fdf[fdf['ORR_num'].notna() & (fdf['ORR_num'] >= selected_min)]
-        else:
-            st.info("No hay datos numéricos de ORR para filtrar.")
-
 if fdf.empty:
     st.warning("No hay datos disponibles con esta combinación de filtros.")
     st.stop()
@@ -399,11 +412,10 @@ plot_df = fdf[fdf['US $ Equiv'] > 0]
 if plot_df.empty:
     st.warning("Solo hay valores en cero después de aplicar los filtros; no se mostrarán gráficos.")
 else:
-    render_concentration(plot_df)
-
-    st.divider()
-
     st.header("Desglose por Dimensiones")
+
+    render_orr_by_dimension(plot_df)
+    st.divider()
 
     render_breakdown(plot_df, "Country", "Exposición por país", "País")
     render_breakdown(plot_df, "Segment", "Exposición por segmento", "Segmento")
