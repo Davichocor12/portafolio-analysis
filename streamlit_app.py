@@ -275,11 +275,6 @@ def render_orr_by_dimension(df):
         st.info("No hay datos de ORR disponibles para graficar.")
         return
 
-    df_orr = df[df['ORR_num'].notna()].copy()
-    if df_orr.empty:
-        st.info("No hay datos de ORR disponibles para graficar.")
-        return
-
     dims = {
         "Country": "País",
         "Segment": "Segmento",
@@ -294,22 +289,50 @@ def render_orr_by_dimension(df):
         format_func=lambda x: dims[x],
     )
 
-    grouped = (
+    # Selección de categorías específicas dentro de la dimensión
+    category_options = sorted(df[dimension].unique())
+    selected_categories = st.multiselect(
+        f"{dims[dimension]} a mostrar", category_options, default=category_options
+    )
+
+    df_selected = df[df[dimension].isin(selected_categories)]
+    if df_selected.empty:
+        st.info("No hay datos disponibles para la selección realizada.")
+        return
+
+    # Exposición total por categoría (incluye registros sin ORR)
+    exposure_total = (
+        df_selected.groupby(dimension)["US $ Equiv"].sum().reset_index(name="Exposición total")
+    )
+    exposure_total = exposure_total[exposure_total["Exposición total"] > 0]
+
+    if exposure_total.empty:
+        st.info("No hay exposición positiva para mostrar en esta dimensión.")
+        return
+
+    # Datos con ORR disponibles para el cálculo ponderado
+    df_orr = df_selected[df_selected['ORR_num'].notna()].copy()
+    if df_orr.empty:
+        st.info("No hay datos de ORR disponibles para graficar.")
+        return
+
+    orr_grouped = (
         df_orr.groupby(dimension)
         .apply(
             lambda g: pd.Series(
                 {
                     "ORR ponderado": weighted_avg_orr(g),
-                    "Exposición": g["US $ Equiv"].sum(),
+                    "Exposición con ORR": g["US $ Equiv"].sum(),
                 }
             )
         )
         .reset_index()
     )
 
-    grouped = grouped[grouped["Exposición"] > 0]
+    # Unir exposición total con el ORR ponderado, conservando solo las categorías con ORR
+    grouped = exposure_total.merge(orr_grouped, on=dimension, how="inner")
     if grouped.empty:
-        st.info("No hay exposición positiva para esta dimensión.")
+        st.info("Las categorías seleccionadas no tienen ORR disponible.")
         return
 
     grouped = grouped.sort_values("ORR ponderado", ascending=False)
@@ -323,7 +346,8 @@ def render_orr_by_dimension(df):
             tooltip=[
                 f"{dimension}:N",
                 alt.Tooltip("ORR ponderado:Q", format=".2f"),
-                alt.Tooltip("Exposición:Q", format=",.0f"),
+                alt.Tooltip("Exposición total:Q", format=",.0f"),
+                alt.Tooltip("Exposición con ORR:Q", format=",.0f"),
             ],
         )
     )
