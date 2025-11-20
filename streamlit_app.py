@@ -126,6 +126,24 @@ def render_kpis(df):
     c2.metric("Número de registros", f"{n:,}")
     c3.metric("Ticket promedio (US$)", format_currency(avg))
 
+
+def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
+    """Mostrar comparación entre el portafolio completo y el filtrado actual."""
+
+    filtered_total = df_filtered['US $ Equiv'].sum()
+    delta_abs = filtered_total - total_full
+    delta_pct = (filtered_total / total_full - 1) * 100 if total_full else 0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Portafolio total (US$)", format_currency(total_full))
+    c2.metric(
+        "Exposición filtrada (US$)",
+        format_currency(filtered_total),
+        delta=f"{delta_abs:,.0f}",
+        delta_color="off",
+    )
+    c3.metric("Variación vs total", f"{delta_pct:.1f}%")
+
 # ============================================
 # RENDER: CONCENTRACIÓN
 # ============================================
@@ -320,11 +338,14 @@ df = load_portfolio_data(
 st.title("Análisis del Portafolio Corporativo")
 st.caption("Filtros dinámicos, concentración, KPIs y desglose por dimensiones.")
 
+total_portfolio = df['US $ Equiv'].sum()
+
 # ------------------------------
 # FILTROS LATERALES
 # ------------------------------
 
-fdf = df.copy()
+# Usar solo exposiciones distintas de cero para los filtros principales
+fdf = df[df['US $ Equiv'] != 0].copy()
 
 filters = {
     "Country": "País",
@@ -367,6 +388,8 @@ if fdf.empty:
 # ------------------------------
 
 st.header("Resumen General")
+render_portfolio_summary(total_portfolio, fdf)
+st.markdown("### KPIs filtrados")
 render_kpis(fdf)
 
 st.divider()
