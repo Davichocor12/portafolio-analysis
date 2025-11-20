@@ -76,50 +76,38 @@ def render_breakdown(
     st.subheader(title)
 
     choices = sorted(df[column].unique())
-    selection = st.multiselect(
-        f'{filter_label} visibles',
-        choices,
-        default=choices,
-        key=f"filter_{column}",
-    )
-    selected_values = selection if selection else choices
-    filtered = df[df[column].isin(selected_values)]
 
-    grouped = (
-        filtered.groupby(column)['US $ Equiv']
-        .sum()
-        .reset_index()
-        .sort_values('US $ Equiv', ascending=False)
-    )
+    left_col, right_col = st.columns(2)
 
-    total_exposure = grouped['US $ Equiv'].sum()
-    grouped['Porcentaje de exposición'] = (
-        grouped['US $ Equiv'] / total_exposure * 100
-    ).fillna(0)
-
-    bar_chart = (
-        alt.Chart(grouped)
-        .mark_bar(color='#2563eb')
-        .encode(
-            x=alt.X('US $ Equiv:Q', title='Exposición (US$)'),
-            y=alt.Y(f'{column}:N', sort='-x', title=filter_label),
-            tooltip=[
-                alt.Tooltip(f'{column}:N', title=filter_label),
-                alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
-                alt.Tooltip('Porcentaje de exposición:Q', title='Porcentaje', format='.1f%'),
-            ],
+    # Bar chart (independent filter)
+    with left_col:
+        bar_selection = st.multiselect(
+            f'{filter_label} visibles (barras)',
+            choices,
+            default=choices,
+            key=f"filter_bar_{column}",
         )
-    )
+        bar_values = bar_selection if bar_selection else choices
+        bar_filtered = df[df[column].isin(bar_values)]
 
-    st.altair_chart(bar_chart, use_container_width=True)
+        bar_grouped = (
+            bar_filtered.groupby(column)['US $ Equiv']
+            .sum()
+            .reset_index()
+            .sort_values('US $ Equiv', ascending=False)
+        )
 
-    if include_pie and not grouped.empty:
-        pie_chart = (
-            alt.Chart(grouped)
-            .mark_arc()
+        total_exposure = bar_grouped['US $ Equiv'].sum()
+        bar_grouped['Porcentaje de exposición'] = (
+            bar_grouped['US $ Equiv'] / total_exposure * 100
+        ).fillna(0)
+
+        bar_chart = (
+            alt.Chart(bar_grouped)
+            .mark_bar(color='#2563eb')
             .encode(
-                theta=alt.Theta('US $ Equiv:Q', stack=True),
-                color=alt.Color(f'{column}:N', title=filter_label),
+                x=alt.X('US $ Equiv:Q', title='Exposición (US$)'),
+                y=alt.Y(f'{column}:N', sort='-x', title=filter_label),
                 tooltip=[
                     alt.Tooltip(f'{column}:N', title=filter_label),
                     alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
@@ -127,9 +115,50 @@ def render_breakdown(
                 ],
             )
         )
-        st.altair_chart(pie_chart, use_container_width=True)
 
-    display_df = grouped.rename(columns={'US $ Equiv': 'Exposición (US$)'})
+        st.altair_chart(bar_chart, use_container_width=True)
+
+    # Pie chart (independent filter)
+    if include_pie:
+        with right_col:
+            pie_selection = st.multiselect(
+                f'{filter_label} visibles (pie)',
+                choices,
+                default=choices,
+                key=f"filter_pie_{column}",
+            )
+            pie_values = pie_selection if pie_selection else choices
+            pie_filtered = df[df[column].isin(pie_values)]
+
+            pie_grouped = (
+                pie_filtered.groupby(column)['US $ Equiv']
+                .sum()
+                .reset_index()
+                .sort_values('US $ Equiv', ascending=False)
+            )
+
+            pie_total = pie_grouped['US $ Equiv'].sum()
+            pie_grouped['Porcentaje de exposición'] = (
+                pie_grouped['US $ Equiv'] / pie_total * 100
+            ).fillna(0)
+
+            pie_chart = (
+                alt.Chart(pie_grouped)
+                .mark_arc()
+                .encode(
+                    theta=alt.Theta('US $ Equiv:Q', stack=True),
+                    color=alt.Color(f'{column}:N', title=filter_label),
+                    tooltip=[
+                        alt.Tooltip(f'{column}:N', title=filter_label),
+                        alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
+                        alt.Tooltip('Porcentaje de exposición:Q', title='Porcentaje', format='.1f%'),
+                    ],
+                )
+            )
+
+            st.altair_chart(pie_chart, use_container_width=True)
+
+    display_df = bar_grouped.rename(columns={'US $ Equiv': 'Exposición (US$)'})
     display_df['Exposición (US$)'] = display_df['Exposición (US$)'].apply(
         format_currency
     )
