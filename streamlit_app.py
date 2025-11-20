@@ -28,7 +28,40 @@ PORTFOLIO_FILE = (
 
 @st.cache_data
 def load_portfolio_data(file_path: Path, last_modified: float):
-    df = pd.read_csv(file_path)
+    """Cargar el portafolio asegurando compatibilidad de archivos.
+
+    Se intenta leer primero el CSV esperado; si no existe o falla la lectura,
+    se busca un XLSX alterno con el mismo nombre. En caso de error se muestra
+    un mensaje claro en la app para evitar que quede en blanco.
+    """
+
+    def read_csv_safe(path: Path) -> pd.DataFrame:
+        try:
+            return pd.read_csv(path, on_bad_lines="skip")
+        except UnicodeDecodeError:
+            return pd.read_csv(path, on_bad_lines="skip", encoding="latin-1")
+
+    if file_path.exists():
+        try:
+            df = read_csv_safe(file_path)
+        except Exception:
+            df = None
+    else:
+        df = None
+
+    if df is None:
+        alt_file = file_path.with_suffix(".xlsx")
+        if alt_file.exists():
+            try:
+                df = pd.read_excel(alt_file)
+            except Exception as e:
+                st.error(f"No se pudo leer el archivo de portafolio: {e}")
+                st.stop()
+        else:
+            st.error(
+                "No se encontró el archivo de portafolio (CSV o XLSX) en la carpeta data."
+            )
+            st.stop()
 
     # 1. LIMPIAR NOMBRES DE COLUMNAS
     df.columns = [col.strip() for col in df.columns]
@@ -53,7 +86,7 @@ def load_portfolio_data(file_path: Path, last_modified: float):
     for c in categorical_cols:
         if c in df.columns:
             df[c] = df[c].astype(str).str.strip().fillna("Sin especificar")
-            df[c].replace("nan", "Sin especificar", inplace=True)
+            df[c] = df[c].replace("nan", "Sin especificar")
 
     return df
 
@@ -267,10 +300,11 @@ filters = {
     "Sector": "Sector",
 }
 
-for col, label in filters.items():
-    options = sorted(fdf[col].unique())
-    sel = st.sidebar.multiselect(label, options, default=options)
-    fdf = fdf[fdf[col].isin(sel)]
+with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
+    for col, label in filters.items():
+        options = sorted(fdf[col].unique())
+        sel = st.multiselect(label, options, default=options)
+        fdf = fdf[fdf[col].isin(sel)]
 
 if fdf.empty:
     st.warning("No hay datos disponibles con esta combinación de filtros.")
