@@ -111,6 +111,14 @@ def load_portfolio_data(file_path: Path, last_modified: float):
     if 'ORR' in df.columns:
         df['ORR_num'] = pd.to_numeric(df['ORR'], errors='coerce')
 
+    # 6. Fecha de madurez normalizada
+    if 'Maturity date' in df.columns:
+        df['Maturity date'] = pd.to_datetime(
+            df['Maturity date'], errors='coerce', dayfirst=False
+        )
+        # Fechas sentinela (p. ej. 1-Jan-9999) se consideran no informadas
+        df.loc[df['Maturity date'].dt.year >= 9999, 'Maturity date'] = pd.NaT
+
     return df
 
 # ============================================
@@ -142,6 +150,130 @@ def render_kpis(df):
     c2.metric("Número de registros", f"{n:,}")
     c3.metric("Ticket promedio (US$)", format_currency(avg))
 
+
+def maturity_bucket(days: float) -> str:
+    if pd.isna(days):
+        return "Sin fecha"
+    if days < 0:
+        return "Vencido"
+    if days <= 365:
+        return "0-1 año"
+    if days <= 3 * 365:
+        return "1-3 años"
+    if days <= 5 * 365:
+        return "3-5 años"
+    return "Más de 5 años"
+
+
+def render_maturity_analysis(df):
+    st.header("Análisis de temporalidad (Maturity date)")
+
+    if 'Maturity date' not in df.columns:
+        st.info("No hay columna de fecha de madurez para analizar.")
+        return
+
+    maturity_df = df[(df['Maturity date'].notna()) & (df['US $ Equiv'] > 0)].copy()
+    if maturity_df.empty:
+        st.info("No hay fechas de madurez válidas con exposición positiva.")
+        return
+
+    today = pd.Timestamp.today().normalize()
+    maturity_df['Días a vencimiento'] = (
+        maturity_df['Maturity date'] - today
+    ).dt.days
+    maturity_df['Bucket de plazo'] = maturity_df['Días a vencimiento'].apply(
+        maturity_bucket
+    )
+
+    total_exposure = maturity_df['US $ Equiv'].sum()
+    weights = maturity_df['US $ Equiv']
+    wal_days = (
+        (maturity_df['Días a vencimiento'] * weights).sum() / total_exposure
+        if total_exposure
+        else float('nan')
+    )
+    wal_years = wal_days / 365 if pd.notna(wal_days) else float('nan')
+    weighted_maturity_date = (
+        (today + pd.Timedelta(days=wal_days)) if pd.notna(wal_days) else None
+    )
+
+    matured_exposure = maturity_df.loc[
+        maturity_df['Días a vencimiento'] < 0, 'US $ Equiv'
+    ].sum()
+    matured_share = (matured_exposure / total_exposure * 100) if total_exposure else 0
+
+    upcoming_df = maturity_df[maturity_df['Días a vencimiento'] >= 0]
+    next_maturity = (
+        upcoming_df.loc[upcoming_df['Días a vencimiento'].idxmin(), 'Maturity date']
+        if not upcoming_df.empty
+        else None
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Weighted Average Life (años)", f"{wal_years:.2f}" if pd.notna(wal_years) else "N/D")
+    c2.metric(
+        "Madurez promedio ponderada",
+        weighted_maturity_date.strftime("%d-%b-%Y") if weighted_maturity_date else "N/D",
+    )
+    c3.metric(
+        "Exposición vencida",
+        format_currency(matured_exposure),
+        f"{matured_share:.1f}% del total",
+    )
+    c4.metric(
+        "Próximo vencimiento",
+        next_maturity.strftime("%d-%b-%Y") if next_maturity else "N/D",
+    )
+
+    bucket_order = [
+        "Vencido",
+        "0-1 año",
+        "1-3 años",
+        "3-5 años",
+        "Más de 5 años",
+    ]
+    bucket_summary = (
+        maturity_df.groupby('Bucket de plazo')['US $ Equiv']
+        .sum()
+        .reset_index(name='Exposición')
+    )
+    bucket_summary['Participación'] = bucket_summary['Exposición'] / total_exposure
+    bucket_summary['Bucket de plazo'] = pd.Categorical(
+        bucket_summary['Bucket de plazo'], bucket_order
+    )
+    bucket_summary = bucket_summary.sort_values('Bucket de plazo').dropna()
+
+    st.markdown("### Exposición por plazo")
+    st.dataframe(
+        bucket_summary.assign(
+            Exposición=bucket_summary['Exposición'].apply(format_currency),
+            Participación=bucket_summary['Participación'].apply(lambda x: f"{x:.1%}"),
+        ),
+        use_container_width=True,
+    )
+
+    maturity_df['Año vencimiento'] = maturity_df['Maturity date'].dt.year
+    year_summary = (
+        maturity_df.groupby('Año vencimiento')['US $ Equiv']
+        .sum()
+        .reset_index(name='Exposición')
+    )
+    year_summary = year_summary[year_summary['Exposición'] > 0]
+
+    if not year_summary.empty:
+        chart = (
+            alt.Chart(year_summary)
+            .mark_bar(color="#6b21a8")
+            .encode(
+                x=alt.X('Año vencimiento:O', title='Año de vencimiento'),
+                y=alt.Y('Exposición:Q', title='Exposición (US$)'),
+                tooltip=[
+                    alt.Tooltip('Año vencimiento:O', title='Año'),
+                    alt.Tooltip('Exposición:Q', format=",.0f"),
+                ],
+            )
+        )
+        st.altair_chart(chart, use_container_width=True)
 
 def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     """Mostrar comparación entre el portafolio completo y el filtrado actual."""
@@ -581,6 +713,8 @@ st.header("Resumen General")
 render_portfolio_summary(total_portfolio, fdf)
 st.markdown("### KPIs filtrados")
 render_kpis(fdf)
+
+render_maturity_analysis(fdf)
 
 st.divider()
 
