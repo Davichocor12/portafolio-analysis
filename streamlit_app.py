@@ -15,7 +15,7 @@ st.set_page_config(
     layout='wide',
 )
 
-# Archivo CSV (AJUSTA ESTA RUTA CUANDO LO SUBAS A STREAMLIT CLOUD)
+# Archivo CSV
 PORTFOLIO_FILE = (
     Path(__file__).parent
     / 'data'
@@ -28,32 +28,32 @@ PORTFOLIO_FILE = (
 
 @st.cache_data
 def load_portfolio_data(file_path: Path, last_modified: float):
-    """
-    Lee y limpia el dataset del portafolio corporativo.
-    """
-
     df = pd.read_csv(file_path)
 
     # 1. LIMPIAR NOMBRES DE COLUMNAS
     df.columns = [col.strip() for col in df.columns]
 
-    # 2. Nombre REAL correcto de la columna de monto:
-    amount_col = 'US $ Equiv'
+    # 2. Renombrar columna EXACTA del archivo
+    if "US $ Equiv" not in df.columns:
+        df = df.rename(columns={' US $ Equiv ': 'US $ Equiv'})
 
-    # 3. LIMPIAR Y CONVERTIR MONTOS
-    df[amount_col] = (
-        df[amount_col]
+    # 3. COLUMNA DE MONTO
+    df['US $ Equiv'] = (
+        df['US $ Equiv']
         .astype(str)
         .str.replace('[^0-9.-]', '', regex=True)
         .replace('', pd.NA)
     )
-    df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
-    df[amount_col] = df[amount_col] * SCALE_FACTOR
 
-    # 4. Normalizar dimensiones categóricas
-    for col in ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']:
-        if col in df.columns:
-            df[col] = df[col].fillna('Sin especificar')
+    df['US $ Equiv'] = pd.to_numeric(df['US $ Equiv'], errors='coerce').fillna(0)
+    df['US $ Equiv'] = df['US $ Equiv'] * SCALE_FACTOR
+
+    # 4. Normalizar categorías (SIN NULOS)
+    categorical_cols = ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']
+    for c in categorical_cols:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip().fillna("Sin especificar")
+            df[c].replace("nan", "Sin especificar", inplace=True)
 
     return df
 
@@ -103,9 +103,6 @@ def render_concentration(df):
     ]
 
     for col, label in dims:
-        if col not in df.columns:
-            continue
-
         with st.expander(f"Concentración por {label}"):
             h = hhi(df, col)
             cr3 = concentration_ratio(df, col, top=3) * 100
@@ -116,14 +113,12 @@ def render_concentration(df):
             c2.metric("CR3", f"{cr3:.1f}%")
             c3.metric("CR10", f"{cr10:.1f}%")
 
+
 # ============================================
 # RENDER: BREAKDOWNS (BARRAS + PIE)
 # ============================================
 
 def render_breakdown(df, column, title, label, include_pie=True):
-    if column not in df.columns:
-        return
-
     st.subheader(title)
 
     options = sorted(df[column].unique())
@@ -132,10 +127,20 @@ def render_breakdown(df, column, title, label, include_pie=True):
     # ----- BARRAS -----
     with col1:
         sel = st.multiselect(f"{label} visibles", options, default=options)
-        selection = sel if sel else options
-        df_f = df[df[column].isin(selection)]
+        vals = sel if sel else options
 
-        g = df_f.groupby(column)['US $ Equiv'].sum().reset_index()
+        df_f = df[df[column].isin(vals)]
+        if df_f.empty:
+            st.info("No hay datos para mostrar en esta gráfica.")
+            return
+
+        g = (
+            df_f.groupby(column)['US $ Equiv']
+            .sum()
+            .reset_index()
+            .sort_values('US $ Equiv', ascending=False)
+        )
+
         total = g['US $ Equiv'].sum()
         g['Porcentaje'] = g['US $ Equiv'] / total
 
@@ -148,8 +153,8 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 tooltip=[
                     f"{column}:N",
                     alt.Tooltip("US $ Equiv:Q", format=",.0f"),
-                    alt.Tooltip("Porcentaje:Q", format=".1%"),
-                ]
+                    alt.Tooltip("Porcentaje:Q", format=".1%")
+                ],
             )
         )
         st.altair_chart(chart, use_container_width=True)
@@ -158,11 +163,18 @@ def render_breakdown(df, column, title, label, include_pie=True):
     if include_pie:
         with col2:
             sel2 = st.multiselect(f"{label} (Pie)", options, default=options)
-            selection2 = sel2 if sel2 else options
-            df_p = df[df[column].isin(selection2)]
+            vals2 = sel2 if sel2 else options
 
-            g2 = df_p.groupby(column)['US $ Equiv'].sum().reset_index()
-            g2['Porcentaje'] = g2['US $ Equiv'] / g2['US $ Equiv'].sum()
+            df_p = df[df[column].isin(vals2)]
+            if df_p.empty:
+                st.info("No hay datos para mostrar en el pie chart.")
+                return
+
+            g2 = (
+                df_p.groupby(column)['US $ Equiv']
+                .sum()
+                .reset_index()
+            )
 
             pie = (
                 alt.Chart(g2)
@@ -172,21 +184,18 @@ def render_breakdown(df, column, title, label, include_pie=True):
                     color=f"{column}:N",
                     tooltip=[
                         f"{column}:N",
-                        alt.Tooltip("US $ Equiv:Q", format=",.0f"),
-                        alt.Tooltip("Porcentaje:Q", format=".1%"),
+                        alt.Tooltip("US $ Equiv:Q", format=",.0f")
                     ],
                 )
             )
             st.altair_chart(pie, use_container_width=True)
+
 
 # ============================================
 # RENDER: HEATMAP
 # ============================================
 
 def render_heatmap(df):
-    if not {'Country', 'Sector'}.issubset(df.columns):
-        return
-
     st.subheader("Mapa de calor País vs Sector")
 
     g = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
@@ -200,8 +209,9 @@ def render_heatmap(df):
             color=alt.Color("US $ Equiv:Q", scale=alt.Scale(scheme="blues")),
             tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
         )
-        .properties(height=400)
+        .properties(height=380)
     )
+
     st.altair_chart(heat, use_container_width=True)
 
 # ============================================
@@ -214,18 +224,23 @@ def render_top_bottom(df, n=10):
     amt = "US $ Equiv"
     ordered = df.sort_values(amt, ascending=False)
 
-    top = ordered.head(n)
-    bottom = ordered[ordered[amt] > 0].tail(n)
+    top = ordered.head(n).copy()
+    bottom = ordered[ordered[amt] > 0].tail(n).copy()
 
-    for d in (top, bottom):
-        d[amt] = d[amt].apply(format_currency)
+    if top.empty or bottom.empty:
+        st.info("No hay suficientes datos para top/bottom.")
+        return
+
+    top[amt] = top[amt].apply(format_currency)
+    bottom[amt] = bottom[amt].apply(format_currency)
 
     c1, c2 = st.columns(2)
-    c1.write(f"### Top {n}")
+    c1.markdown("### Top 10")
     c1.dataframe(top, use_container_width=True)
 
-    c2.write(f"### Bottom {n}")
+    c2.markdown("### Bottom 10 (solo valores > 0)")
     c2.dataframe(bottom, use_container_width=True)
+
 
 # ============================================
 # APP PRINCIPAL
@@ -245,28 +260,20 @@ st.caption("Filtros dinámicos, concentración, KPIs y desglose por dimensiones.
 
 fdf = df.copy()
 
-if "Country" in fdf.columns:
-    countries = sorted(fdf["Country"].unique())
-    sel = st.sidebar.multiselect("País", countries, default=countries)
-    fdf = fdf[fdf["Country"].isin(sel)]
+filters = {
+    "Country": "País",
+    "Segment": "Segmento",
+    "Product Type": "Tipo de producto",
+    "Sector": "Sector",
+}
 
-if "Segment" in fdf.columns:
-    seg = sorted(fdf["Segment"].unique())
-    sel = st.sidebar.multiselect("Segmento", seg, default=seg)
-    fdf = fdf[fdf["Segment"].isin(sel)]
-
-if "Product Type" in fdf.columns:
-    prod = sorted(fdf["Product Type"].unique())
-    sel = st.sidebar.multiselect("Tipo de producto", prod, default=prod)
-    fdf = fdf[fdf["Product Type"].isin(sel)]
-
-if "Sector" in fdf.columns:
-    sec = sorted(fdf["Sector"].unique())
-    sel = st.sidebar.multiselect("Sector", sec, default=sec)
-    fdf = fdf[fdf["Sector"].isin(sel)]
+for col, label in filters.items():
+    options = sorted(fdf[col].unique())
+    sel = st.sidebar.multiselect(label, options, default=options)
+    fdf = fdf[fdf[col].isin(sel)]
 
 if fdf.empty:
-    st.warning("No hay datos para mostrar con estos filtros.")
+    st.warning("No hay datos disponibles con esta combinación de filtros.")
     st.stop()
 
 # ------------------------------
@@ -302,3 +309,4 @@ st.divider()
 
 st.header("Detalle Completo")
 st.dataframe(fdf, use_container_width=True)
+
