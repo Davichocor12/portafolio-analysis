@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
 from pathlib import Path
+
+SCALE_FACTOR = 1_000
 
 st.set_page_config(
     page_title='Análisis de portafolio',
@@ -34,6 +37,7 @@ def load_portfolio_data(file_path: Path, last_modified: float):
         .replace('', pd.NA)
     )
     df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
+    df[amount_col] = df[amount_col] * SCALE_FACTOR
 
     for column in ['Country', 'Segment', 'Product Type', 'Sector', 'Sector 2']:
         df[column] = df[column].fillna('Sin especificar')
@@ -41,45 +45,10 @@ def load_portfolio_data(file_path: Path, last_modified: float):
     return df
 
 
-def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply sidebar filters to the dataframe."""
+def format_currency(value: float) -> str:
+    """Return currency formatted with thousand separators."""
 
-    with st.sidebar:
-        st.header('Filtros del portafolio')
-
-        filter_options = {}
-        for column, label in [
-            ('Country', 'Países'),
-            ('Segment', 'Segmentos'),
-            ('Product Type', 'Tipos de producto'),
-            ('Sector', 'Sectores'),
-            ('Sector 2', 'Sector 2'),
-        ]:
-            choices = sorted(df[column].unique())
-            selection = st.multiselect(
-                label,
-                choices,
-                default=choices,
-            )
-            filter_options[column] = selection if selection else choices
-
-        min_amount, max_amount = st.slider(
-            'Rango de exposición (US$)',
-            float(df['US $ Equiv'].min()),
-            float(df['US $ Equiv'].max()),
-            (float(df['US $ Equiv'].min()), float(df['US $ Equiv'].max())),
-        )
-
-    filtered_df = df[
-        (df['Country'].isin(filter_options['Country']))
-        & (df['Segment'].isin(filter_options['Segment']))
-        & (df['Product Type'].isin(filter_options['Product Type']))
-        & (df['Sector'].isin(filter_options['Sector']))
-        & (df['Sector 2'].isin(filter_options['Sector 2']))
-        & (df['US $ Equiv'].between(min_amount, max_amount))
-    ]
-
-    return filtered_df
+    return f"{value:,.0f}"
 
 
 def render_kpis(df: pd.DataFrame):
@@ -90,24 +59,85 @@ def render_kpis(df: pd.DataFrame):
     average_ticket = df['US $ Equiv'].mean() if accounts else 0
 
     col1, col2, col3 = st.columns(3)
-    col1.metric('Exposición total (US$)', f"{total_exposure:,.0f}")
+    col1.metric('Exposición total (US$)', format_currency(total_exposure))
     col2.metric('Número de registros', f"{accounts:,}")
-    col3.metric('Ticket promedio (US$)', f"{average_ticket:,.0f}")
+    col3.metric('Ticket promedio (US$)', format_currency(average_ticket))
 
 
-def render_breakdown(df: pd.DataFrame, column: str, title: str):
-    """Render a bar chart with exposure grouped by the provided column."""
+def render_breakdown(
+    df: pd.DataFrame,
+    column: str,
+    title: str,
+    filter_label: str,
+    include_pie: bool = False,
+):
+    """Render a breakdown with filters, bar chart, optional pie and a formatted table."""
+
+    st.subheader(title)
+
+    choices = sorted(df[column].unique())
+    selection = st.multiselect(
+        f'{filter_label} visibles',
+        choices,
+        default=choices,
+        key=f"filter_{column}",
+    )
+    selected_values = selection if selection else choices
+    filtered = df[df[column].isin(selected_values)]
 
     grouped = (
-        df.groupby(column)['US $ Equiv']
+        filtered.groupby(column)['US $ Equiv']
         .sum()
         .reset_index()
         .sort_values('US $ Equiv', ascending=False)
     )
 
-    st.subheader(title)
-    st.bar_chart(grouped, x=column, y='US $ Equiv')
-    st.dataframe(grouped, use_container_width=True, hide_index=True)
+    total_exposure = grouped['US $ Equiv'].sum()
+    grouped['Porcentaje de exposición'] = (
+        grouped['US $ Equiv'] / total_exposure * 100
+    ).fillna(0)
+
+    bar_chart = (
+        alt.Chart(grouped)
+        .mark_bar(color='#2563eb')
+        .encode(
+            x=alt.X('US $ Equiv:Q', title='Exposición (US$)'),
+            y=alt.Y(f'{column}:N', sort='-x', title=filter_label),
+            tooltip=[
+                alt.Tooltip(f'{column}:N', title=filter_label),
+                alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
+                alt.Tooltip('Porcentaje de exposición:Q', title='Porcentaje', format='.1f%'),
+            ],
+        )
+    )
+
+    st.altair_chart(bar_chart, use_container_width=True)
+
+    if include_pie and not grouped.empty:
+        pie_chart = (
+            alt.Chart(grouped)
+            .mark_arc()
+            .encode(
+                theta=alt.Theta('US $ Equiv:Q', stack=True),
+                color=alt.Color(f'{column}:N', title=filter_label),
+                tooltip=[
+                    alt.Tooltip(f'{column}:N', title=filter_label),
+                    alt.Tooltip('US $ Equiv:Q', title='Exposición (US$)', format=',.0f'),
+                    alt.Tooltip('Porcentaje de exposición:Q', title='Porcentaje', format='.1f%'),
+                ],
+            )
+        )
+        st.altair_chart(pie_chart, use_container_width=True)
+
+    display_df = grouped.rename(columns={'US $ Equiv': 'Exposición (US$)'})
+    display_df['Exposición (US$)'] = display_df['Exposición (US$)'].apply(
+        format_currency
+    )
+    display_df['Porcentaje de exposición'] = display_df[
+        'Porcentaje de exposición'
+    ].map(lambda x: f"{x:.1f}%")
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
 
 
 portfolio_df = load_portfolio_data(
@@ -118,22 +148,50 @@ portfolio_df = load_portfolio_data(
 st.title('Análisis del portafolio corporativo')
 st.caption('Explora la exposición y concentración por país, segmento y producto.')
 
-filtered_portfolio = apply_filters(portfolio_df)
-
 st.divider()
 st.header('Resumen general')
-render_kpis(filtered_portfolio)
+render_kpis(portfolio_df)
 
 st.divider()
 
 st.header('Desglose por dimensiones')
-render_breakdown(filtered_portfolio, 'Country', 'Exposición por país')
-render_breakdown(filtered_portfolio, 'Segment', 'Exposición por segmento')
-render_breakdown(filtered_portfolio, 'Product Type', 'Exposición por tipo de producto')
-render_breakdown(filtered_portfolio, 'Sector', 'Exposición por sector')
-render_breakdown(filtered_portfolio, 'Sector 2', 'Exposición por Sector 2')
+render_breakdown(
+    portfolio_df,
+    'Country',
+    'Exposición por país',
+    'País',
+    include_pie=True,
+)
+render_breakdown(
+    portfolio_df,
+    'Segment',
+    'Exposición por segmento',
+    'Segmento',
+    include_pie=True,
+)
+render_breakdown(
+    portfolio_df,
+    'Product Type',
+    'Exposición por tipo de producto',
+    'Tipo de producto',
+    include_pie=True,
+)
+render_breakdown(
+    portfolio_df,
+    'Sector',
+    'Exposición por sector',
+    'Sector',
+    include_pie=True,
+)
+render_breakdown(
+    portfolio_df,
+    'Sector 2',
+    'Exposición por Sector 2',
+    'Sector 2',
+    include_pie=True,
+)
 
 st.divider()
 
 st.header('Detalle de operaciones filtradas')
-st.dataframe(filtered_portfolio, use_container_width=True)
+st.dataframe(portfolio_df, use_container_width=True)
