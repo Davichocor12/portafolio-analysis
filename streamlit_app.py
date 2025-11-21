@@ -208,6 +208,7 @@ PORTFOLIO_FILE = (
     / 'data'
     / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V4.csv'
 )
+CLIMATE_RISK_FILE = Path(__file__).parent / 'data' / 'caribbean_risk_country.csv'
 
 # ============================================
 # DATA LOADING AND CLEANUP
@@ -303,6 +304,24 @@ def load_portfolio_data(file_path: Path, last_modified: float):
 
     return df
 
+
+@st.cache_data
+def load_climate_risk_data(file_path: Path, last_modified: float) -> pd.DataFrame:
+    """Load and normalize the Caribbean climate risk dataset."""
+
+    if not file_path.exists():
+        st.error("The Caribbean climate risk file was not found in the data folder.")
+        st.stop()
+
+    df = pd.read_csv(file_path)
+    df.columns = [col.strip() for col in df.columns]
+
+    numeric_cols = [col for col in df.columns if col != "Country"]
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
+
 # ============================================
 # FUNCIONES AUXILIARES
 # ============================================
@@ -317,6 +336,52 @@ def weighted_avg_orr(group: pd.DataFrame) -> float:
     if weights.sum() > 0:
         return float((values * weights).sum() / weights.sum())
     return float(values.mean()) if not values.empty else 0.0
+
+
+def tourism_impact_score(tourism_gdp: float) -> int:
+    """Score impact only from tourism GDP share."""
+
+    if pd.isna(tourism_gdp) or tourism_gdp <= 0:
+        return 0
+    if tourism_gdp < 20:
+        return 1
+    if tourism_gdp < 40:
+        return 2
+    if tourism_gdp < 60:
+        return 3
+    if tourism_gdp < 80:
+        return 4
+    return 5
+
+
+def frequency_probability_score(frequency_years: float) -> int:
+    """Score probability using the recurrence frequency in years."""
+
+    if pd.isna(frequency_years) or frequency_years <= 0:
+        return 0
+    if frequency_years < 5:
+        return 5
+    if frequency_years <= 10:
+        return 4
+    if frequency_years <= 15:
+        return 3
+    if frequency_years <= 25:
+        return 2
+    return 1
+
+
+def assign_risk_level(risk_score: int) -> str:
+    if risk_score == 0:
+        return "No Data"
+    if risk_score <= 5:
+        return "Low"
+    if risk_score <= 10:
+        return "Medium-Low"
+    if risk_score <= 15:
+        return "Medium"
+    if risk_score <= 20:
+        return "High"
+    return "Critical"
 
 # ============================================
 # RENDER: KPIs
@@ -876,6 +941,154 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
         st.dataframe(table_display.rename(columns={column: label}), use_container_width=True)
 
 
+def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame):
+    """Show climate risk scores, matrix, heatmap, and macro KPIs."""
+
+    st.subheader("Exposure Climate Risk")
+    st.caption(
+        "Riesgo climático derivado de la dependencia del turismo y la frecuencia de eventos extremos."
+    )
+
+    filtered_countries = sorted(plot_df["Country"].unique()) if not plot_df.empty else []
+    risk_df = climate_df.copy()
+    if filtered_countries:
+        risk_df = risk_df[risk_df["Country"].isin(filtered_countries)]
+
+    if risk_df.empty:
+        st.info("There is no climate risk data for the selected countries.")
+        return
+
+    gdp_cols = [col for col in risk_df.columns if col.startswith("GDP_")]
+
+    scored_df = risk_df.assign(
+        ImpactScore=risk_df["TourismGDP"].apply(tourism_impact_score),
+        ProbabilityScore=risk_df["FrequencyYears"].apply(frequency_probability_score),
+    )
+    scored_df["RiskScore"] = scored_df["ImpactScore"] * scored_df["ProbabilityScore"]
+    scored_df["RiskLevel"] = scored_df["RiskScore"].apply(assign_risk_level)
+
+    st.markdown("#### Matriz de riesgo")
+    matrix_display = scored_df[
+        ["Country", "ImpactScore", "ProbabilityScore", "RiskScore", "RiskLevel"]
+    ].sort_values("RiskScore", ascending=False)
+    st.dataframe(matrix_display, use_container_width=True)
+
+    heat_df = scored_df.copy()
+    heat_df["PointId"] = (
+        heat_df["ImpactScore"].astype(str) + "-" + heat_df["ProbabilityScore"].astype(str)
+    )
+    heat_df["LabelOffset"] = heat_df.groupby("PointId").cumcount() * 14 - 10
+
+    base = alt.Chart(heat_df).encode(
+        x=alt.X(
+            "ImpactScore:Q",
+            title="Impacto (Tourism GDP)",
+            scale=alt.Scale(domain=[0, 5], nice=False),
+        ),
+        y=alt.Y(
+            "ProbabilityScore:Q",
+            title="Probabilidad (Frecuencia)",
+            scale=alt.Scale(domain=[0, 5], nice=False),
+        ),
+    )
+
+    scatter = base.mark_circle(size=220).encode(
+        color=alt.Color(
+            "RiskScore:Q",
+            title="Risk score",
+            scale=alt.Scale(scheme="yelloworangered"),
+        ),
+        tooltip=[
+            "Country:N",
+            alt.Tooltip("ImpactScore:Q", title="Impact"),
+            alt.Tooltip("ProbabilityScore:Q", title="Probabilidad"),
+            alt.Tooltip("RiskScore:Q", title="Risk score"),
+            "RiskLevel:N",
+        ],
+    )
+
+    labels = base.mark_text(fontWeight="bold", color=BRAND_COLORS["primary"]).encode(
+        text="Country:N", dy="LabelOffset:Q"
+    )
+
+    st.markdown("#### Heatmap de riesgo (impacto vs. probabilidad)")
+    st.altair_chart(scatter + labels, use_container_width=True)
+
+    macro_rows = []
+    for _, row in scored_df.iterrows():
+        growth = row[gdp_cols].dropna()
+        avg_growth = growth.mean() if not growth.empty else pd.NA
+        volatility = growth.std() if not growth.empty else pd.NA
+        best_year = growth.idxmax() if not growth.empty else None
+        worst_year = growth.idxmin() if not growth.empty else None
+        cumulative = (growth.div(100).add(1).prod() - 1) if not growth.empty else pd.NA
+
+        macro_rows.append(
+            {
+                "Country": row["Country"],
+                "Avg GDP growth": avg_growth,
+                "Volatility": volatility,
+                "Best year": best_year.replace("GDP_", "") if best_year else "N/A",
+                "Worst year": worst_year.replace("GDP_", "") if worst_year else "N/A",
+                "Cumulative growth": cumulative,
+            }
+        )
+
+    macro_df = pd.DataFrame(macro_rows)
+    macro_display = macro_df.copy()
+    macro_display["Avg GDP growth"] = macro_display["Avg GDP growth"].map(
+        lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
+    )
+    macro_display["Volatility"] = macro_display["Volatility"].map(
+        lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
+    )
+    macro_display["Cumulative growth"] = macro_display["Cumulative growth"].map(
+        lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
+    )
+
+    st.markdown("#### KPIs macroeconómicos (crecimiento PIB)")
+    st.dataframe(macro_display, use_container_width=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### RiskScore (descendente)")
+        bar_chart = (
+            alt.Chart(scored_df)
+            .mark_bar()
+            .encode(
+                x=alt.X("Country:N", sort="-y", title="Country"),
+                y=alt.Y("RiskScore:Q", title="Risk score"),
+                color=alt.Color("RiskLevel:N", scale=alt.Scale(scheme="yelloworangered")),
+                tooltip=["Country:N", "RiskScore:Q", "RiskLevel:N"],
+            )
+        )
+        st.altair_chart(bar_chart, use_container_width=True)
+
+    with col2:
+        st.markdown("#### Crecimiento del PIB por año y país")
+        gdp_long = scored_df.melt(
+            id_vars=["Country"], value_vars=gdp_cols, var_name="Year", value_name="GDPGrowth"
+        ).dropna()
+        gdp_long["Year"] = gdp_long["Year"].str.replace("GDP_", "")
+
+        heatmap = (
+            alt.Chart(gdp_long)
+            .mark_rect()
+            .encode(
+                x=alt.X("Year:O", title="Año"),
+                y=alt.Y("Country:N", sort=matrix_display["Country"].tolist(), title="Country"),
+                color=alt.Color(
+                    "GDPGrowth:Q",
+                    title="GDP growth %",
+                    scale=alt.Scale(scheme="blues", domainMid=0),
+                ),
+                tooltip=["Country:N", "Year:N", alt.Tooltip("GDPGrowth:Q", format=".1f")],
+            )
+        )
+        st.altair_chart(heatmap, use_container_width=True)
+
+
 # ============================================
 # RENDER: HEATMAP
 # ============================================
@@ -1149,6 +1362,10 @@ df = load_portfolio_data(
     PORTFOLIO_FILE,
     PORTFOLIO_FILE.stat().st_mtime,
 )
+climate_df = load_climate_risk_data(
+    CLIMATE_RISK_FILE,
+    CLIMATE_RISK_FILE.stat().st_mtime,
+)
 
 title_html = """
 <div class="title-with-logo">
@@ -1229,6 +1446,7 @@ else:
     st.divider()
 
     render_breakdown(plot_df, "Country", "Exposure by country", "Country")
+    render_climate_risk_section(plot_df, climate_df)
     render_breakdown(plot_df, "Segment", "Exposure by segment", "Segment")
     render_breakdown(plot_df, "Product Type", "Exposure by product type", "Product type")
     render_breakdown(plot_df, "Sector", "Exposure by sector", "Sector")
