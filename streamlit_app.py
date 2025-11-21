@@ -338,8 +338,6 @@ def calendar_year_bucket(maturity_date: pd.Timestamp, today: pd.Timestamp) -> st
 
     if pd.isna(maturity_date):
         return "No date"
-    if maturity_date < today:
-        return "Expired"
     return str(maturity_date.year)
 
 
@@ -446,9 +444,9 @@ def render_maturity_analysis(df):
         max_maturity.strftime("%d-%b-%Y") if pd.notna(max_maturity) else "N/A",
     )
 
-    bucket_order = ["Expired"] + [
-        str(year) for year in range(today.year, max_maturity.year + 1)
-    ]
+    min_maturity = maturity_df['Maturity date'].min()
+    min_year = min_maturity.year if pd.notna(min_maturity) else today.year
+    bucket_order = [str(year) for year in range(min_year, max_maturity.year + 1)]
     bucket_summary = (
         maturity_df.groupby('Term bucket')['US $ Equiv']
         .sum()
@@ -635,6 +633,36 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
     if pvt_df.empty:
         st.info("No records in Sector 2 contain 'PVT'.")
         return
+
+    st.markdown("#### Data quality check")
+    base_records = len(df_pos)
+    base_exposure = df_pos["US $ Equiv"].sum()
+    pvt_records = len(pvt_df)
+    pvt_exposure = pvt_df["US $ Equiv"].sum()
+    non_pvt_exposure = base_exposure - pvt_exposure
+
+    dq_summary = pd.DataFrame(
+        {
+            "Records": [base_records, pvt_records, base_records - pvt_records],
+            "Exposure (US$)": [base_exposure, pvt_exposure, non_pvt_exposure],
+        },
+        index=[
+            "Positive exposure (base)",
+            "Included: Sector 2 contains 'PVT'",
+            "Excluded: Other Sector 2 labels",
+        ],
+    )
+
+    st.caption(
+        "PVT metrics are derived from positive exposures only and rely on "
+        "'Sector 2' entries that explicitly contain 'PVT'."
+    )
+    st.dataframe(
+        dq_summary.assign(
+            **{"Exposure (US$)": dq_summary["Exposure (US$)"].apply(format_currency)}
+        ),
+        use_container_width=True,
+    )
 
     total_filtered = df_pos["US $ Equiv"].sum()
     pvt_total = pvt_df["US $ Equiv"].sum()
