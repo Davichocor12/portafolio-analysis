@@ -603,7 +603,7 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
     c1, c2, c3 = st.columns(3)
     c1.metric("Total PVT exposure (US$)", format_currency(pvt_total))
     c2.metric("PVT records", f"{len(pvt_df):,}")
-    c3.metric("Portfolio share", f"{portfolio_share:.1f}%")
+    c3.metric("Portfolio share", f"{portfolio_share:.2f}%")
     st.markdown(f"**Nominal PVT sum (US$):** {format_currency(nominal_sum)}")
 
     summary = (
