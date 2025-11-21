@@ -209,6 +209,18 @@ PORTFOLIO_FILE = (
     / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V4.csv'
 )
 
+HURRICANE_RISK_FILE = Path(__file__).parent / "data" / "caribbean_risk_country.csv"
+RISK_GDP_COLUMNS = [
+    "GDP_2026",
+    "GDP_2027",
+    "GDP_2028",
+    "GDP_2029",
+    "GDP_2030",
+    "GDP_2031",
+    "GDP_2032",
+    "GDP_2033",
+]
+
 # ============================================
 # DATA LOADING AND CLEANUP
 # ============================================
@@ -303,6 +315,21 @@ def load_portfolio_data(file_path: Path, last_modified: float):
 
     return df
 
+
+@st.cache_data
+def load_hurricane_tourism_data(file_path: Path) -> pd.DataFrame:
+    """Load hurricane and tourism risk inputs."""
+
+    if not file_path.exists():
+        st.error("The hurricane & tourism risk file was not found in the data folder.")
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(file_path)
+    except Exception as exc:  # pragma: no cover - defensive rendering
+        st.error(f"The hurricane & tourism risk file could not be read: {exc}")
+        return pd.DataFrame()
+
 # ============================================
 # FUNCIONES AUXILIARES
 # ============================================
@@ -322,7 +349,7 @@ def weighted_avg_orr(group: pd.DataFrame) -> float:
 # RENDER: KPIs
 # ============================================
 
-def render_kpis(df):
+def render_portfolio_kpis(df):
     total = df['US $ Equiv'].sum()
     n = len(df)
     avg = df['US $ Equiv'].mean() if n else 0
@@ -880,7 +907,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 # RENDER: HEATMAP
 # ============================================
 
-def render_heatmap(df):
+def render_exposure_heatmap(df):
     st.subheader("Country vs Sector heatmap")
 
     g = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
@@ -1050,6 +1077,197 @@ def render_orr_by_dimension(df):
     st.altair_chart(chart, use_container_width=True)
 
 
+# ============================================
+# HURRICANE & TOURISM RISK MATRIX
+# ============================================
+
+
+def compute_scores(df: pd.DataFrame, countries: list[str]) -> pd.DataFrame:
+    """Calculate impact, probability, and risk scores using tourism inputs."""
+
+    data = df.copy()
+    if data.empty:
+        data = pd.DataFrame(columns=["Country", "TourismGDP", "FrequencyYears", *RISK_GDP_COLUMNS])
+
+    if "Country" not in data.columns:
+        data["Country"] = pd.Series(dtype=str, index=data.index)
+
+    data["Country"] = data["Country"].astype(str).str.strip()
+
+    for col in ["TourismGDP", "FrequencyYears", *RISK_GDP_COLUMNS]:
+        if col not in data.columns:
+            data[col] = 0
+        data[col] = pd.to_numeric(data[col], errors="coerce").fillna(0)
+
+    missing_countries = [c for c in countries if c not in set(data["Country"])]
+    if missing_countries:
+        missing_rows = pd.DataFrame({"Country": missing_countries})
+        for col in ["TourismGDP", "FrequencyYears", *RISK_GDP_COLUMNS]:
+            missing_rows[col] = 0
+        data = pd.concat([data, missing_rows], ignore_index=True)
+
+    data = data.drop_duplicates(subset=["Country"], keep="first")
+
+    def impact_score(value: float) -> int:
+        if pd.isna(value) or value <= 0:
+            return 0
+        if value < 20:
+            return 1
+        if value <= 40:
+            return 2
+        if value <= 60:
+            return 3
+        if value <= 80:
+            return 4
+        return 5
+
+    def probability_score(value: float) -> int:
+        if pd.isna(value) or value <= 0:
+            return 0
+        if value < 5:
+            return 5
+        if value <= 10:
+            return 4
+        if value <= 15:
+            return 3
+        if value <= 25:
+            return 2
+        return 1
+
+    def risk_level(score: int) -> str:
+        if score == 0:
+            return "No Data"
+        if score <= 5:
+            return "Low"
+        if score <= 10:
+            return "Medium-Low"
+        if score <= 15:
+            return "Medium"
+        if score <= 20:
+            return "High"
+        return "Critical"
+
+    data["ImpactScore"] = data["TourismGDP"].apply(impact_score)
+    data["ProbabilityScore"] = data["FrequencyYears"].apply(probability_score)
+    data["RiskScore"] = data["ImpactScore"] * data["ProbabilityScore"]
+    data["RiskLevel"] = data["RiskScore"].apply(risk_level)
+
+    return data
+
+
+def compute_kpis(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate macroeconomic KPIs from the GDP series."""
+
+    kpi_rows: list[dict[str, float | str]] = []
+
+    for _, row in df.iterrows():
+        gdp_series = pd.to_numeric(row[RISK_GDP_COLUMNS], errors="coerce")
+        has_values = not gdp_series.isna().all() and (gdp_series.fillna(0) != 0).any()
+
+        if not has_values:
+            metrics = {
+                "avg_gdp": 0.0,
+                "positive_ratio": 0.0,
+                "severe_years": 0,
+                "shock_avg": 0.0,
+                "volatility": 0.0,
+            }
+        else:
+            negative_years = gdp_series[gdp_series < 0]
+            metrics = {
+                "avg_gdp": float(gdp_series.mean()),
+                "positive_ratio": float((gdp_series > 0).mean() * 100),
+                "severe_years": int((gdp_series < -5).sum()),
+                "shock_avg": float(negative_years.mean()) if not negative_years.empty else 0.0,
+                "volatility": float(gdp_series.std(ddof=0)),
+            }
+
+        kpi_rows.append({"Country": row["Country"], **metrics})
+
+    return pd.DataFrame(kpi_rows)
+
+
+def render_risk_matrix(df: pd.DataFrame):
+    st.subheader("Risk matrix")
+
+    display_cols = ["Country", "ImpactScore", "ProbabilityScore", "RiskScore", "RiskLevel"]
+    ordered = df[display_cols].sort_values("RiskScore", ascending=False).reset_index(drop=True)
+    st.dataframe(ordered, use_container_width=True)
+
+
+def render_heatmap(df: pd.DataFrame):
+    st.subheader("RiskScore heatmap")
+
+    heat_df = df[["Country", "RiskScore"]].copy()
+    heat_df["Metric"] = "Risk"
+
+    heat = (
+        alt.Chart(heat_df)
+        .mark_rect()
+        .encode(
+            x=alt.X("Metric:N", title=""),
+            y=alt.Y(
+                "Country:N",
+                sort=alt.SortField(field="RiskScore", order="descending"),
+            ),
+            color=alt.Color(
+                "RiskScore:Q",
+                scale=alt.Scale(domain=[0, 25], range=["#2ca25f", "#fee08b", "#d73027"]),
+                title="Risk score",
+            ),
+            tooltip=["Country", alt.Tooltip("RiskScore:Q", format=",.0f")],
+        )
+        .properties(height=420)
+    )
+
+    st.altair_chart(heat, use_container_width=True)
+
+
+def render_kpis(df: pd.DataFrame):
+    st.subheader("Macroeconomic KPIs")
+
+    display_cols = [
+        "Country",
+        "avg_gdp",
+        "positive_ratio",
+        "severe_years",
+        "shock_avg",
+        "volatility",
+    ]
+
+    st.dataframe(df[display_cols], use_container_width=True)
+
+
+def render_risk_bar(df: pd.DataFrame):
+    st.subheader("RiskScore by country")
+
+    bar_data = df.sort_values("RiskScore", ascending=False)
+    chart = (
+        alt.Chart(bar_data)
+        .mark_bar(color=BRAND_COLORS["accent"])
+        .encode(
+            x=alt.X("RiskScore:Q", title="Risk score"),
+            y=alt.Y("Country:N", sort="-x"),
+            tooltip=["Country", alt.Tooltip("RiskScore:Q", format=",.0f")],
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+
+def render_hurricane_tourism_section(plot_df: pd.DataFrame):
+    countries = sorted(plot_df["Country"].unique())
+    risk_inputs = load_hurricane_tourism_data(HURRICANE_RISK_FILE)
+    scores_df = compute_scores(risk_inputs, countries)
+    kpi_df = compute_kpis(scores_df)
+
+    st.header("Hurricane & Tourism Risk Matrix")
+    render_risk_matrix(scores_df)
+    render_heatmap(scores_df)
+    render_kpis(kpi_df)
+    render_risk_bar(scores_df)
+
+
 def render_exposure_by_dimension(df):
     st.subheader("Exposure (US$) by dimension")
 
@@ -1213,7 +1431,7 @@ if fdf.empty:
 st.header("General summary")
 render_portfolio_summary(total_portfolio, fdf)
 st.markdown("### Filtered KPIs")
-render_kpis(fdf)
+render_portfolio_kpis(fdf)
 
 plot_df = fdf[fdf['US $ Equiv'] > 0]
 
@@ -1229,6 +1447,7 @@ else:
     st.divider()
 
     render_breakdown(plot_df, "Country", "Exposure by country", "Country")
+    render_hurricane_tourism_section(plot_df)
     render_breakdown(plot_df, "Segment", "Exposure by segment", "Segment")
     render_breakdown(plot_df, "Product Type", "Exposure by product type", "Product type")
     render_breakdown(plot_df, "Sector", "Exposure by sector", "Sector")
@@ -1239,7 +1458,7 @@ else:
 
     st.divider()
 
-    render_heatmap(plot_df)
+    render_exposure_heatmap(plot_df)
 
     render_orr_heatmap(plot_df)
 
