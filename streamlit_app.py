@@ -1375,6 +1375,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         - **Expected annual loss**: approximates downside using the hazard rate and severity: `Exposure × Annual event probability × (Impact / 5)`.
         - **Average risk weight**: portfolio-level ratio `Σ(Exposure at risk) ÷ Σ(Exposure)`, displayed as a percentage in the KPI row.
         - **Macroeconomic KPIs**: `Volatility` is the standard deviation of historical GDP growth, **Resilience = avg growth ÷ volatility** (when volatility > 0), and **Cumulative growth** compounds the growth series: `(∏(1 + growth%)) – 1`.
+        - **Annual event probability** is the hazard rate derived directly from the recurrence input: `1 ÷ frequency (years)`. For example, a 10-year event frequency implies a 10% yearly chance; values are capped at 0–100% and shown only when the source frequency is provided.
         """
     )
 
