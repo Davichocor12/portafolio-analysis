@@ -1197,13 +1197,19 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         size=alt.Size(
             "ExposureAtRisk:Q",
             title="Exposure at risk (US$)",
-            scale=alt.Scale(range=[80, 1200]),
+            scale=alt.Scale(range=[70, 900]),
             legend=alt.Legend(
                 orient="right",
-                titleLimit=300,
-                labelLimit=200,
+                direction="vertical",
+                titleLimit=280,
+                labelLimit=220,
+                titleFontSize=12,
+                labelFontSize=11,
                 symbolStrokeColor=BRAND_COLORS["primary"],
-                offset=90,
+                symbolFillColor="#f5f5f5",
+                symbolStrokeWidth=1,
+                symbolSize=200,
+                offset=150,
             ),
         ),
         color=alt.Color(
@@ -1215,8 +1221,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
             ),
             legend=alt.Legend(
                 orient="right",
-                titleLimit=300,
-                labelLimit=200,
+                direction="vertical",
+                titleLimit=280,
+                labelLimit=220,
+                titleFontSize=12,
+                labelFontSize=11,
+                offset=0,
             ),
         ),
         tooltip=[
@@ -1256,7 +1266,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     st.markdown("#### Risk heatmap (impact vs. probability)")
     risk_chart = (
         (scatter + labels)
-        .properties(height=420, padding={"left": 5, "right": 220, "top": 5, "bottom": 5})
+        .properties(height=420, padding={"left": 5, "right": 260, "top": 5, "bottom": 5})
         .configure_legend(titleLimit=320, labelLimit=260, labelFontSize=12, titleFontSize=13)
     )
     st.altair_chart(risk_chart, use_container_width=True)
