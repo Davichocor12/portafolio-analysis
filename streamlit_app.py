@@ -5,25 +5,21 @@ import altair as alt
 from pathlib import Path
 
 CATEGORY10 = [
-    "#1f77b4",
-    "#ff7f0e",
-    "#2ca02c",
-    "#d62728",
-    "#9467bd",
-    "#8c564b",
-    "#e377c2",
-    "#7f7f7f",
-    "#bcbd22",
-    "#17becf",
+    "#29435c",  # Azul gris oscuro
+    "#3f7f81",  # Verde azulado medio
+    "#f2a541",  # Ámbar cálido
+    "#6ba29a",  # Verde claro
+    "#205e5d",  # Verde petróleo
+    "#f5c271",  # Ámbar suave
 ]
 
 BRAND_COLORS = {
-    "primary": "#0b3d6d",  # Azul oscuro principal
-    "secondary": "#125f82",  # Azul verdoso para subtítulos
-    "accent": "#1a9c9c",  # Verde azulado para detalles
-    "neutral": "#12263f",  # Texto principal oscuro
-    "muted": "#5c6b7a",  # Texto secundario
-    "highlight": "#78b48c",  # Verde claro para resaltes
+    "primary": "#29435c",  # Azul gris oscuro (títulos, barras principales)
+    "secondary": "#3f7f81",  # Verde azulado medio (botones, resaltados)
+    "accent": "#f2a541",  # Ámbar cálido (llamados de acción)
+    "neutral": "#1f2b3a",  # Texto principal oscuro
+    "muted": "#5f6f7a",  # Texto secundario
+    "highlight": "#8ab6a4",  # Resaltes suaves
 }
 BRAND_FONT = "Arial, sans-serif"
 
@@ -116,12 +112,40 @@ def apply_brand_styling():
                 font-weight: 700;
             }}
 
+            /* Sidebar y controles */
+            [data-testid="stSidebar"] {{
+                background: linear-gradient(180deg, rgba(41,67,92,0.08), rgba(63,127,129,0.06));
+                padding-top: 12px;
+            }}
+            [data-testid="stSidebar"] h2, [data-testid="stSidebar"] label {{
+                color: var(--brand-primary);
+            }}
+            [data-baseweb="select"] > div {{
+                border-radius: 8px;
+                border-color: var(--brand-secondary) !important;
+            }}
+            [data-baseweb="tag"] {{
+                background-color: var(--brand-secondary) !important;
+                color: white !important;
+                border: none !important;
+                font-weight: 600;
+            }}
+            [data-baseweb="tag"] svg {{
+                fill: white !important;
+            }}
+            [data-testid="stSidebar"] button {{
+                background-color: var(--brand-accent) !important;
+                color: var(--brand-neutral) !important;
+                font-weight: 700 !important;
+            }}
+
             /* Botones y selectores */
             button {{
-                background-color: var(--brand-primary) !important;
-                color: white !important;
-                border-radius: 6px !important;
+                background-color: var(--brand-accent) !important;
+                color: var(--brand-neutral) !important;
+                border-radius: 8px !important;
                 border: none !important;
+                font-weight: 700;
             }}
             button:hover {{
                 background-color: var(--brand-secondary) !important;
@@ -131,19 +155,24 @@ def apply_brand_styling():
             /* Logo fijo en la esquina superior derecha */
             .app-logo {{
                 position: fixed;
-                top: 14px;
-                right: 20px;
-                width: 150px;
+                top: 32px;
+                right: 22px;
+                width: 110px;
+                padding: 6px 8px;
+                background: rgba(255,255,255,0.9);
+                border-radius: 10px;
+                box-shadow: 0 6px 18px rgba(0,0,0,0.08);
                 z-index: 1000;
             }}
             .app-logo img {{
                 width: 100%;
+                display: block;
                 object-fit: contain;
             }}
 
             /* Tarjetas y divisores suaves */
             .stApp > header {{
-                background: linear-gradient(90deg, rgba(11,61,109,0.08), rgba(26,156,156,0.06));
+                background: linear-gradient(90deg, rgba(41,67,92,0.08), rgba(242,165,65,0.06));
             }}
             .stDataFrame, .stMarkdown {{
                 border-radius: 8px;
@@ -402,7 +431,7 @@ def render_maturity_analysis(df):
     if not year_summary.empty:
         chart = (
             alt.Chart(year_summary)
-            .mark_bar(color="#6b21a8")
+            .mark_bar(color=BRAND_COLORS["accent"])
             .encode(
                 x=alt.X('Año vencimiento:O', title='Año de vencimiento'),
                 y=alt.Y('Exposición:Q', title='Exposición (US$)'),
@@ -497,7 +526,7 @@ def render_eligible_activity_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color="#0ea5e9")
+        .mark_bar(color=BRAND_COLORS["secondary"])
         .encode(
             x=alt.X('Exposición:Q', title='Exposición (US$)'),
             y=alt.Y('Eligible Activity:N', sort='-x', title='Eligible Activity'),
@@ -568,7 +597,7 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color="#fb923c")
+        .mark_bar(color=BRAND_COLORS["accent"])
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y("Sector 2:N", sort="-x", title="Categoría PVT"),
@@ -646,7 +675,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 
         chart = (
             alt.Chart(g)
-            .mark_bar(color="#2563eb")
+            .mark_bar(color=BRAND_COLORS["primary"])
             .encode(
                 x=alt.X("US $ Equiv:Q", title="Exposición (US$)"),
                 y=alt.Y(f"{column}:N", sort="-x", title=label),
@@ -715,7 +744,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 
             legend_lines = []
             for _, row in g2.sort_values('Porcentaje', ascending=False).iterrows():
-                color = color_map.get(row[column], "#999999")
+                color = color_map.get(row[column], BRAND_COLORS["muted"])
                 legend_lines.append(
                     (
                         "<div style='display:flex;align-items:center;margin-bottom:6px;'>"
@@ -770,7 +799,10 @@ def render_heatmap(df):
         .encode(
             x=alt.X("Sector:N"),
             y=alt.Y("Country:N"),
-            color=alt.Color("US $ Equiv:Q", scale=alt.Scale(scheme="blues")),
+            color=alt.Color(
+                "US $ Equiv:Q",
+                scale=alt.Scale(range=["#e8eef2", BRAND_COLORS["secondary"], BRAND_COLORS["primary"]]),
+            ),
             tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
         )
         .properties(height=380)
@@ -815,7 +847,10 @@ def render_orr_heatmap(df):
         .encode(
             x=alt.X("Sector:N"),
             y=alt.Y("Country:N"),
-            color=alt.Color("ORR ponderado:Q", scale=alt.Scale(scheme="greens")),
+            color=alt.Color(
+                "ORR ponderado:Q",
+                scale=alt.Scale(range=["#fff5e6", BRAND_COLORS["highlight"], BRAND_COLORS["accent"]]),
+            ),
             tooltip=[
                 "Country",
                 "Sector",
@@ -907,7 +942,7 @@ def render_orr_by_dimension(df):
 
     chart = (
         alt.Chart(grouped)
-        .mark_bar(color="#10b981")
+        .mark_bar(color=BRAND_COLORS["secondary"])
         .encode(
             x=alt.X("ORR ponderado:Q", title="ORR ponderado por exposición"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
@@ -974,7 +1009,7 @@ def render_exposure_by_dimension(df):
 
     chart = (
         alt.Chart(exposure)
-        .mark_bar(color="#1d4ed8")
+        .mark_bar(color=BRAND_COLORS["primary"])
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
