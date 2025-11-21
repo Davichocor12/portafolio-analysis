@@ -1,4 +1,5 @@
 import base64
+import re
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -26,6 +27,85 @@ BRAND_FONT = "Arial, sans-serif"
 
 BAR_COLOR_SEQUENCE = ["#be993c", "#5d9ea7"]
 BAR_COLOR_CYCLE = cycle(BAR_COLOR_SEQUENCE)
+
+
+def get_last_modified_ts(path: Path) -> float:
+    """Return the last modified timestamp or 0 if the file does not exist."""
+
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
+def _country_key(value: str) -> str:
+    """Normalize textual differences to compare country names reliably."""
+
+    normalized = value.lower().strip()
+    normalized = normalized.replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+COUNTRY_VARIANTS = {
+    "Antigua": {"Antigua", "Antigua & Barbuda", "Antigua and Barbuda"},
+    "Bahamas": {"Bahamas", "The Bahamas"},
+    "Barbados": {"Barbados"},
+    "Bds Offshore": {"Bds Offshore", "Bds Offshore Ltd"},
+    "Bds Trust": {"Bds Trust", "Bds Trust Co", "Bds Trust Company"},
+    "Br Virgin Is": {
+        "Br Virgin Is",
+        "British Virgin Islands",
+        "BVI",
+        "British Virgin Is",
+    },
+    "Cayman": {"Cayman", "Cayman Islands", "Cayman Island"},
+    "Dominica": {"Dominica"},
+    "First (L&W) Ltd": {
+        "First (L&W) Ltd",
+        "First (L and W) Ltd",
+        "First L&W Ltd",
+        "First L and W Ltd",
+    },
+    "Jamaica": {"Jamaica"},
+    "St Kitts & Nevis": {
+        "St Kitts & Nevis",
+        "Saint Kitts and Nevis",
+        "St. Kitts & Nevis",
+        "St Kitts and Nevis",
+    },
+    "St Lucia": {"St Lucia", "Saint Lucia", "St. Lucia"},
+    "Trinidad": {"Trinidad", "Trinidad & Tobago", "Trinidad and Tobago"},
+    "Turks & Caicos": {
+        "Turks & Caicos",
+        "Turks and Caicos",
+        "Turks & Caicos Islands",
+        "Turks and Caicos Islands",
+    },
+    "Not specified": {"Not specified", "Unknown", "N/A", "NA"},
+}
+
+COUNTRY_NAME_MAP = {}
+for canonical, variants in COUNTRY_VARIANTS.items():
+    for variant in {canonical, *variants}:
+        key = _country_key(variant)
+        if key:
+            COUNTRY_NAME_MAP[key] = canonical
+
+
+def normalize_country_name(country: str) -> str:
+    """Return a canonical country label shared by both datasets."""
+
+    if not isinstance(country, str):
+        return "Not specified"
+
+    cleaned = country.strip()
+    if not cleaned:
+        return "Not specified"
+
+    if cleaned.lower() in {"nan", "<na>", "none", "null"}:
+        return "Not specified"
+
+    return COUNTRY_NAME_MAP.get(_country_key(cleaned), cleaned)
 
 # ============================================
 # GENERAL CONFIGURATION
@@ -280,6 +360,9 @@ def load_portfolio_data(file_path: Path, last_modified: float):
             df[c] = df[c].astype(str).str.strip().fillna("Not specified")
             df[c] = df[c].replace("nan", "Not specified")
 
+    if 'Country' in df.columns:
+        df['Country'] = df['Country'].apply(normalize_country_name)
+
     # 4.1. Simplified delinquency flag column
     if 'Delinq band' in df.columns:
         df['Delinq band simple'] = df['Delinq band'].apply(
@@ -315,6 +398,8 @@ def load_climate_risk_data(file_path: Path, last_modified: float) -> pd.DataFram
 
     df = pd.read_csv(file_path)
     df.columns = [col.strip() for col in df.columns]
+    df["Country"] = df["Country"].astype(str).str.strip()
+    df["Country"] = df["Country"].apply(normalize_country_name)
 
     numeric_cols = [col for col in df.columns if col != "Country"]
     for col in numeric_cols:
@@ -928,17 +1013,24 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
             return
 
         total_table = table['Exposure'].sum()
-        table_display = table.assign(
-            **{
+        if total_table > 0:
+            share_display = table['Exposure'] / total_table
+            share_display = share_display.apply(lambda x: f"{x:.1%}")
+        else:
+            share_display = pd.Series(
+                ["0.0%"] * len(table), index=table.index, dtype="object"
+            )
+
+        table_display = pd.DataFrame(
+            {
+                label: table[column],
                 "Exposure (US$)": table['Exposure'].apply(format_currency),
-                "Share": table['Exposure'].apply(
-                    lambda v: f"{(v / total_table):.1%}" if total_table else "0.0%"
-                ),
+                "Share": share_display,
             }
-        )[[column, "Exposure (US$)", "Share"]]
+        )
 
         st.markdown(f"**Exposure details by {label.lower()}**")
-        st.dataframe(table_display.rename(columns={column: label}), use_container_width=True)
+        st.dataframe(table_display, use_container_width=True)
 
 
 def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame):
@@ -951,12 +1043,28 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 
     filtered_countries = sorted(plot_df["Country"].unique()) if not plot_df.empty else []
     risk_df = climate_df.copy()
+    missing_countries: list[str] = []
+
     if filtered_countries:
         risk_df = risk_df[risk_df["Country"].isin(filtered_countries)]
+        missing_countries = sorted(set(filtered_countries) - set(risk_df["Country"]))
+
+        if missing_countries:
+            filler = pd.DataFrame({"Country": missing_countries})
+            for col in climate_df.columns:
+                if col != "Country":
+                    filler[col] = pd.NA
+            risk_df = pd.concat([risk_df, filler], ignore_index=True)
 
     if risk_df.empty:
         st.info("There is no climate risk data for the selected countries.")
         return
+
+    if missing_countries:
+        st.caption(
+            f"Países sin información climática en el dataset: {', '.join(missing_countries)}. "
+            "Se muestran como 'No Data' para mantener la coherencia del filtro."
+        )
 
     gdp_cols = [col for col in risk_df.columns if col.startswith("GDP_")]
 
@@ -1360,11 +1468,11 @@ logo_b64 = apply_brand_styling()
 
 df = load_portfolio_data(
     PORTFOLIO_FILE,
-    PORTFOLIO_FILE.stat().st_mtime,
+    get_last_modified_ts(PORTFOLIO_FILE),
 )
 climate_df = load_climate_risk_data(
     CLIMATE_RISK_FILE,
-    CLIMATE_RISK_FILE.stat().st_mtime,
+    get_last_modified_ts(CLIMATE_RISK_FILE),
 )
 
 title_html = """
