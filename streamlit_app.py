@@ -710,7 +710,18 @@ filters = {
 with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
     for col, label in filters.items():
         options = sorted(fdf[col].unique())
-        sel = st.multiselect(label, options, default=options)
+        state_key = f"filter_{col}"
+        button_key = f"select_all_{col}"
+
+        if state_key not in st.session_state:
+            st.session_state[state_key] = options
+
+        btn_col, _ = st.columns([1, 3])
+        with btn_col:
+            if st.button("Seleccionar todo", key=button_key, help=f"Seleccionar todos los valores de {label}"):
+                st.session_state[state_key] = options
+
+        sel = st.multiselect(label, options, default=st.session_state[state_key], key=state_key)
         fdf = fdf[fdf[col].isin(sel)]
 
 if fdf.empty:
