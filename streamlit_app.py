@@ -420,11 +420,13 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
     total_filtered = df_pos["US $ Equiv"].sum()
     pvt_total = pvt_df["US $ Equiv"].sum()
     portfolio_share = (pvt_total / total_filtered * 100) if total_filtered else 0
+    nominal_sum = pvt_df["US $ Equiv"].sum()
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Exposición total PVT (US$)", format_currency(pvt_total))
     c2.metric("Registros PVT", f"{len(pvt_df):,}")
     c3.metric("Participación en portafolio", f"{portfolio_share:.1f}%")
+    st.markdown(f"**Suma nominal PVT (US$):** {format_currency(nominal_sum)}")
 
     summary = (
         pvt_df.groupby("Sector 2")
@@ -487,14 +489,16 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
     st.subheader(title)
 
     options = sorted(df[column].unique())
+    selected_options = st.multiselect(
+        f"{label} a mostrar", options, default=options, key=f"breakdown_{column}"
+    )
+    values = selected_options if selected_options else options
+
     col1, col2 = st.columns(2)
 
     # ----- BARRAS -----
     with col1:
-        sel = st.multiselect(f"{label} visibles", options, default=options)
-        vals = sel if sel else options
-
-        df_f = df[df[column].isin(vals)]
+        df_f = df[df[column].isin(values)]
         if df_f.empty:
             st.info("No hay datos para mostrar en esta gráfica.")
             return
@@ -535,10 +539,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
     # ----- PIE -----
     if include_pie:
         with col2:
-            sel2 = st.multiselect(f"{label} (Pie)", options, default=options)
-            vals2 = sel2 if sel2 else options
-
-            df_p = df[df[column].isin(vals2)]
+            df_p = df[df[column].isin(values)]
             if df_p.empty:
                 st.info("No hay datos para mostrar en el pie chart.")
                 return
