@@ -288,6 +288,116 @@ def render_maturity_analysis(df):
         )
         st.altair_chart(chart, use_container_width=True)
 
+
+def render_eligible_activity_analysis(df: pd.DataFrame):
+    """Agrupar la exposición por clasificación de Eligible Activity.
+
+    Todas las columnas de Eligible Activity se consolidan en una sola dimensión
+    acumulativa, independientemente del número de columna (1-6)."""
+
+    st.header("Análisis de Eligible Activities")
+
+    eligible_cols = [
+        c for c in df.columns if c.lower().startswith("elegible activities")
+    ]
+
+    if not eligible_cols:
+        st.info(
+            "No se encontraron columnas de Eligible Activities en el archivo para analizar."
+        )
+        return
+
+    eligible_df = df[df['US $ Equiv'] > 0].copy()
+    if eligible_df.empty:
+        st.info("Solo hay valores en cero; no es posible mostrar el análisis.")
+        return
+
+    melted = (
+        eligible_df.reset_index()
+        .melt(
+            id_vars=['index', 'US $ Equiv'],
+            value_vars=eligible_cols,
+            var_name='Campo Eligible Activity',
+            value_name='Eligible Activity',
+        )
+    )
+
+    melted['Eligible Activity'] = (
+        melted['Eligible Activity'].astype(str).str.strip()
+    )
+
+    valid_mask = (
+        melted['Eligible Activity'].notna()
+        & (melted['Eligible Activity'] != "")
+        & (~melted['Eligible Activity'].isin(["nan", "0", "0.0"]))
+    )
+    melted = melted[valid_mask]
+
+    if melted.empty:
+        st.info("No hay valores de Eligible Activity distintos de cero o vacíos.")
+        return
+
+    melted = melted.drop_duplicates(subset=['index', 'Eligible Activity'])
+
+    options = sorted(melted['Eligible Activity'].unique())
+    selected = st.multiselect(
+        "Eligible Activities a mostrar",
+        options,
+        default=options,
+        help=(
+            "Las clasificaciones son acumulativas entre columnas; si se marca una"
+            " categoría se suman todas las operaciones que la incluyen."
+        ),
+    )
+
+    filtered = melted[melted['Eligible Activity'].isin(selected)] if selected else melted
+
+    summary = (
+        filtered.groupby('Eligible Activity')
+        .agg(
+            Operaciones=('index', 'nunique'),
+            Exposición=('US $ Equiv', 'sum'),
+        )
+        .reset_index()
+    )
+
+    summary = summary[summary['Exposición'] > 0].sort_values('Exposición', ascending=False)
+
+    if summary.empty:
+        st.info("Las categorías seleccionadas no tienen exposición positiva.")
+        return
+
+    summary['Participación'] = summary['Exposición'] / summary['Exposición'].sum()
+
+    chart = (
+        alt.Chart(summary)
+        .mark_bar(color="#0ea5e9")
+        .encode(
+            x=alt.X('Exposición:Q', title='Exposición (US$)'),
+            y=alt.Y('Eligible Activity:N', sort='-x', title='Eligible Activity'),
+            tooltip=[
+                'Eligible Activity:N',
+                alt.Tooltip('Exposición:Q', format=",.0f"),
+                alt.Tooltip('Operaciones:Q', title='Número de operaciones'),
+                alt.Tooltip('Participación:Q', format=".1%"),
+            ],
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+    table_display = summary.assign(
+        **{
+            'Exposición (US$)': summary['Exposición'].apply(format_currency),
+            'Participación': summary['Participación'].apply(lambda x: f"{x:.1%}"),
+        }
+    )[
+        ['Eligible Activity', 'Operaciones', 'Exposición (US$)', 'Participación']
+    ]
+
+    st.markdown("**Detalle por Eligible Activity**")
+    st.dataframe(table_display, use_container_width=True)
+
 def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     """Mostrar comparación entre el portafolio completo y el filtrado actual."""
 
@@ -797,6 +907,10 @@ else:
     st.divider()
 
     render_maturity_analysis(plot_df)
+
+    st.divider()
+
+    render_eligible_activity_analysis(plot_df)
 
     st.divider()
 
