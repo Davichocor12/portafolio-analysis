@@ -1,3 +1,4 @@
+import base64
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -16,6 +17,16 @@ CATEGORY10 = [
     "#17becf",
 ]
 
+BRAND_COLORS = {
+    "primary": "#0b3d6d",  # Azul oscuro principal
+    "secondary": "#125f82",  # Azul verdoso para subtítulos
+    "accent": "#1a9c9c",  # Verde azulado para detalles
+    "neutral": "#12263f",  # Texto principal oscuro
+    "muted": "#5c6b7a",  # Texto secundario
+    "highlight": "#78b48c",  # Verde claro para resaltes
+}
+BRAND_FONT = "Arial, sans-serif"
+
 # ============================================
 # CONFIGURACIÓN GENERAL
 # ============================================
@@ -27,6 +38,121 @@ st.set_page_config(
     page_icon=':bar_chart:',
     layout='wide',
 )
+
+
+def encode_logo(logo_path: Path) -> str | None:
+    """Convertir el logo a base64 para incrustarlo en HTML.
+
+    Retorna ``None`` si el archivo no existe o no se puede leer.
+    """
+
+    try:
+        return base64.b64encode(logo_path.read_bytes()).decode()
+    except FileNotFoundError:
+        return None
+
+
+def apply_brand_styling():
+    """Aplicar tipografía, colores y logo de la paleta corporativa."""
+
+    logo_path = Path(__file__).parent / "logo.jpg"
+    logo_b64 = encode_logo(logo_path)
+
+    logo_block = (
+        f"""
+        <div class="app-logo">
+            <img src="data:image/jpeg;base64,{logo_b64}" alt="Logo" />
+        </div>
+        """
+        if logo_b64
+        else ""
+    )
+
+    st.markdown(
+        f"""
+        <style>
+            :root {{
+                --brand-primary: {BRAND_COLORS["primary"]};
+                --brand-secondary: {BRAND_COLORS["secondary"]};
+                --brand-accent: {BRAND_COLORS["accent"]};
+                --brand-neutral: {BRAND_COLORS["neutral"]};
+                --brand-muted: {BRAND_COLORS["muted"]};
+                --brand-highlight: {BRAND_COLORS["highlight"]};
+                --brand-font: {BRAND_FONT};
+            }}
+
+            html, body, .stApp {{
+                font-family: var(--brand-font) !important;
+                color: var(--brand-neutral);
+            }}
+
+            h1, h2 {{
+                color: var(--brand-primary);
+                font-weight: 700;
+                letter-spacing: 0.02em;
+            }}
+
+            h3, h4 {{
+                color: var(--brand-secondary);
+                font-weight: 600;
+            }}
+
+            p, span, label, .stMarkdown {{
+                color: var(--brand-neutral);
+            }}
+
+            .stCaption, .st-emotion-cache-1q7q0r2 {{
+                color: var(--brand-muted) !important;
+                font-size: 0.95rem;
+            }}
+
+            /* Ajuste de métricas */
+            [data-testid="stMetric"] label, [data-testid="stMetricLabel"] {{
+                color: var(--brand-muted);
+                font-size: 0.95rem;
+            }}
+            [data-testid="stMetricValue"] {{
+                color: var(--brand-primary);
+                font-weight: 700;
+            }}
+
+            /* Botones y selectores */
+            button {{
+                background-color: var(--brand-primary) !important;
+                color: white !important;
+                border-radius: 6px !important;
+                border: none !important;
+            }}
+            button:hover {{
+                background-color: var(--brand-secondary) !important;
+                color: white !important;
+            }}
+
+            /* Logo fijo en la esquina superior derecha */
+            .app-logo {{
+                position: fixed;
+                top: 14px;
+                right: 20px;
+                width: 150px;
+                z-index: 1000;
+            }}
+            .app-logo img {{
+                width: 100%;
+                object-fit: contain;
+            }}
+
+            /* Tarjetas y divisores suaves */
+            .stApp > header {{
+                background: linear-gradient(90deg, rgba(11,61,109,0.08), rgba(26,156,156,0.06));
+            }}
+            .stDataFrame, .stMarkdown {{
+                border-radius: 8px;
+            }}
+        </style>
+        {logo_block}
+        """,
+        unsafe_allow_html=True,
+    )
 
 # Archivo CSV
 PORTFOLIO_FILE = (
@@ -889,6 +1015,8 @@ def render_top_bottom(df, n=10):
 # ============================================
 # APP PRINCIPAL
 # ============================================
+
+apply_brand_styling()
 
 df = load_portfolio_data(
     PORTFOLIO_FILE,
