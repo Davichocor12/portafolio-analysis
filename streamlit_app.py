@@ -2,6 +2,7 @@ import base64
 import streamlit as st
 import pandas as pd
 import altair as alt
+from itertools import cycle
 from pathlib import Path
 
 CATEGORY10 = [
@@ -22,6 +23,9 @@ BRAND_COLORS = {
     "highlight": "#9ec5ca",  # Resaltes suaves
 }
 BRAND_FONT = "Arial, sans-serif"
+
+BAR_COLOR_SEQUENCE = ["#be993c", "#5d9ea7"]
+BAR_COLOR_CYCLE = cycle(BAR_COLOR_SEQUENCE)
 
 # ============================================
 # CONFIGURACIÓN GENERAL
@@ -191,6 +195,12 @@ def apply_brand_styling() -> str | None:
     )
 
     return logo_b64
+
+
+def next_bar_color() -> str:
+    """Obtener el siguiente color de barra alternando la paleta solicitada."""
+
+    return next(BAR_COLOR_CYCLE)
 
 # Archivo CSV
 PORTFOLIO_FILE = (
@@ -440,7 +450,7 @@ def render_maturity_analysis(df):
     if not year_summary.empty:
         chart = (
             alt.Chart(year_summary)
-            .mark_bar(color=BRAND_COLORS["accent"])
+            .mark_bar(color=next_bar_color())
             .encode(
                 x=alt.X('Año vencimiento:O', title='Año de vencimiento'),
                 y=alt.Y('Exposición:Q', title='Exposición (US$)'),
@@ -535,7 +545,7 @@ def render_eligible_activity_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color=BRAND_COLORS["secondary"])
+        .mark_bar(color=next_bar_color())
         .encode(
             x=alt.X('Exposición:Q', title='Exposición (US$)'),
             y=alt.Y('Eligible Activity:N', sort='-x', title='Eligible Activity'),
@@ -606,7 +616,7 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color=BRAND_COLORS["accent"])
+        .mark_bar(color=next_bar_color())
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y("Sector 2:N", sort="-x", title="Categoría PVT"),
@@ -684,7 +694,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 
         chart = (
             alt.Chart(g)
-            .mark_bar(color=BRAND_COLORS["primary"])
+            .mark_bar(color=next_bar_color())
             .encode(
                 x=alt.X("US $ Equiv:Q", title="Exposición (US$)"),
                 y=alt.Y(f"{column}:N", sort="-x", title=label),
@@ -951,7 +961,7 @@ def render_orr_by_dimension(df):
 
     chart = (
         alt.Chart(grouped)
-        .mark_bar(color=BRAND_COLORS["secondary"])
+        .mark_bar(color=next_bar_color())
         .encode(
             x=alt.X("ORR ponderado:Q", title="ORR ponderado por exposición"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
@@ -1018,7 +1028,7 @@ def render_exposure_by_dimension(df):
 
     chart = (
         alt.Chart(exposure)
-        .mark_bar(color=BRAND_COLORS["primary"])
+        .mark_bar(color=next_bar_color())
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
