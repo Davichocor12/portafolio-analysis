@@ -5,21 +5,21 @@ import altair as alt
 from pathlib import Path
 
 CATEGORY10 = [
-    "#1b355a",  # Azul oscuro
-    "#3f7f81",  # Verde azulado medio
-    "#f2a541",  # Ámbar cálido
-    "#6ba29a",  # Verde claro
-    "#205e5d",  # Verde petróleo
-    "#f5c271",  # Ámbar suave
+    "#5d9ea7",  # Azul marino
+    "#be993c",  # Amarillo
+    "#032043",  # Azul oscuro
+    "#45777e",  # Variante azul verdoso
+    "#5d8291",  # Tono intermedio
+    "#9ec5ca",  # Azul claro
 ]
 
 BRAND_COLORS = {
-    "primary": "#1b355a",  # Azul oscuro (títulos, barras principales y filtros)
-    "secondary": "#3f7f81",  # Verde azulado medio (botones, resaltados)
-    "accent": "#f2a541",  # Ámbar cálido (llamados de acción)
-    "neutral": "#1f2b3a",  # Texto principal oscuro
-    "muted": "#5f6f7a",  # Texto secundario
-    "highlight": "#8ab6a4",  # Resaltes suaves
+    "primary": "#5d9ea7",  # Azul marino (barras principales y filtros)
+    "secondary": "#45777e",  # Variante azul verdoso (botones, resaltados)
+    "accent": "#be993c",  # Amarillo (llamados de acción)
+    "neutral": "#032043",  # Azul oscuro para texto principal
+    "muted": "#5d8291",  # Texto secundario
+    "highlight": "#9ec5ca",  # Resaltes suaves
 }
 BRAND_FONT = "Arial, sans-serif"
 
@@ -123,6 +123,9 @@ def apply_brand_styling() -> str | None:
                 border: none !important;
                 font-weight: 600;
             }}
+            [data-baseweb="tag"] * {{
+                color: #ffffff !important;
+            }}
             [data-baseweb="tag"] svg {{
                 fill: #ffffff !important;
             }}
@@ -135,14 +138,14 @@ def apply_brand_styling() -> str | None:
             /* Botones y selectores */
             button {{
                 background-color: var(--brand-accent) !important;
-                color: var(--brand-neutral) !important;
+                color: #ffffff !important;
                 border-radius: 8px !important;
                 border: none !important;
                 font-weight: 700;
             }}
             button:hover {{
                 background-color: var(--brand-secondary) !important;
-                color: white !important;
+                color: #ffffff !important;
             }}
 
             /* Título con logo */
