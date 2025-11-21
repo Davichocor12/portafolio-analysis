@@ -303,7 +303,7 @@ def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
 # RENDER: BREAKDOWNS (BARRAS + PIE)
 # ============================================
 
-def render_breakdown(df, column, title, label, include_pie=True):
+def render_breakdown(df, column, title, label, include_pie=True, show_table=False):
     st.subheader(title)
 
     options = sorted(df[column].unique())
@@ -420,6 +420,32 @@ def render_breakdown(df, column, title, label, include_pie=True):
                 )
             with legend_col:
                 st.markdown("".join(legend_lines), unsafe_allow_html=True)
+
+    if show_table:
+        table = (
+            df[df['US $ Equiv'] > 0]
+            .groupby(column)['US $ Equiv']
+            .sum()
+            .reset_index(name='Exposición')
+            .sort_values('Exposición', ascending=False)
+        )
+
+        if table.empty:
+            st.info(f"No hay exposición positiva para mostrar por {label.lower()}.")
+            return
+
+        total_table = table['Exposición'].sum()
+        table_display = table.assign(
+            **{
+                "Exposición (US$)": table['Exposición'].apply(format_currency),
+                "Participación": table['Exposición'].apply(
+                    lambda v: f"{(v / total_table):.1%}" if total_table else "0.0%"
+                ),
+            }
+        )[[column, "Exposición (US$)", "Participación"]]
+
+        st.markdown(f"**Detalle de exposición por {label.lower()}**")
+        st.dataframe(table_display.rename(columns={column: label}), use_container_width=True)
 
 
 # ============================================
@@ -716,10 +742,13 @@ with st.sidebar.expander("Filtros (selección múltiple)", expanded=True):
         if state_key not in st.session_state:
             st.session_state[state_key] = options
 
-        btn_col, _ = st.columns([1, 3])
-        with btn_col:
-            if st.button("Seleccionar todo", key=button_key, help=f"Seleccionar todos los valores de {label}"):
-                st.session_state[state_key] = options
+        if st.button(
+            "Seleccionar todo",
+            key=button_key,
+            help=f"Seleccionar todos los valores de {label}",
+            use_container_width=True,
+        ):
+            st.session_state[state_key] = options
 
         sel = st.multiselect(label, options, default=st.session_state[state_key], key=state_key)
         fdf = fdf[fdf[col].isin(sel)]
@@ -754,7 +783,9 @@ else:
     render_breakdown(plot_df, "Segment", "Exposición por segmento", "Segmento")
     render_breakdown(plot_df, "Product Type", "Exposición por tipo de producto", "Tipo de producto")
     render_breakdown(plot_df, "Sector", "Exposición por sector", "Sector")
-    render_breakdown(plot_df, "Sector 2", "Exposición por Sector 2", "Sector 2")
+    render_breakdown(
+        plot_df, "Sector 2", "Exposición por Sector 2", "Sector 2", show_table=True
+    )
     render_breakdown(plot_df, "Delinq band", "Exposición por Delinq band", "Delinq band")
 
     st.divider()
