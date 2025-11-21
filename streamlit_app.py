@@ -5,7 +5,7 @@ import altair as alt
 from pathlib import Path
 
 CATEGORY10 = [
-    "#29435c",  # Azul gris oscuro
+    "#1b355a",  # Azul oscuro
     "#3f7f81",  # Verde azulado medio
     "#f2a541",  # Ámbar cálido
     "#6ba29a",  # Verde claro
@@ -14,7 +14,7 @@ CATEGORY10 = [
 ]
 
 BRAND_COLORS = {
-    "primary": "#29435c",  # Azul gris oscuro (títulos, barras principales)
+    "primary": "#1b355a",  # Azul oscuro (títulos, barras principales y filtros)
     "secondary": "#3f7f81",  # Verde azulado medio (botones, resaltados)
     "accent": "#f2a541",  # Ámbar cálido (llamados de acción)
     "neutral": "#1f2b3a",  # Texto principal oscuro
@@ -48,21 +48,14 @@ def encode_logo(logo_path: Path) -> str | None:
         return None
 
 
-def apply_brand_styling():
-    """Aplicar tipografía, colores y logo de la paleta corporativa."""
+def apply_brand_styling() -> str | None:
+    """Aplicar tipografía y colores de la paleta corporativa.
+
+    Retorna el logo codificado en base64 para poder usarlo en el layout.
+    """
 
     logo_path = Path(__file__).parent / "logo.jpg"
     logo_b64 = encode_logo(logo_path)
-
-    logo_block = (
-        f"""
-        <div class="app-logo">
-            <img src="data:image/jpeg;base64,{logo_b64}" alt="Logo" />
-        </div>
-        """
-        if logo_b64
-        else ""
-    )
 
     st.markdown(
         f"""
@@ -122,20 +115,20 @@ def apply_brand_styling():
             }}
             [data-baseweb="select"] > div {{
                 border-radius: 8px;
-                border-color: var(--brand-secondary) !important;
+                border-color: var(--brand-primary) !important;
             }}
             [data-baseweb="tag"] {{
-                background-color: var(--brand-secondary) !important;
-                color: white !important;
+                background-color: var(--brand-primary) !important;
+                color: #ffffff !important;
                 border: none !important;
                 font-weight: 600;
             }}
             [data-baseweb="tag"] svg {{
-                fill: white !important;
+                fill: #ffffff !important;
             }}
             [data-testid="stSidebar"] button {{
                 background-color: var(--brand-accent) !important;
-                color: var(--brand-neutral) !important;
+                color: #ffffff !important;
                 font-weight: 700 !important;
             }}
 
@@ -152,22 +145,23 @@ def apply_brand_styling():
                 color: white !important;
             }}
 
-            /* Logo fijo en la esquina superior derecha */
-            .app-logo {{
-                position: fixed;
-                top: 32px;
-                right: 22px;
-                width: 110px;
-                padding: 6px 8px;
-                background: rgba(255,255,255,0.9);
-                border-radius: 10px;
-                box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-                z-index: 1000;
+            /* Título con logo */
+            .title-with-logo {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
             }}
-            .app-logo img {{
-                width: 100%;
-                display: block;
+            .title-with-logo h1 {{
+                margin: 0;
+            }}
+            .title-logo {{
+                height: 56px;
+                width: auto;
                 object-fit: contain;
+            }}
+            .page-caption {{
+                color: var(--brand-muted);
+                margin-top: 4px;
             }}
 
             /* Tarjetas y divisores suaves */
@@ -178,10 +172,11 @@ def apply_brand_styling():
                 border-radius: 8px;
             }}
         </style>
-        {logo_block}
         """,
         unsafe_allow_html=True,
     )
+
+    return logo_b64
 
 # Archivo CSV
 PORTFOLIO_FILE = (
@@ -1051,15 +1046,28 @@ def render_top_bottom(df, n=10):
 # APP PRINCIPAL
 # ============================================
 
-apply_brand_styling()
+logo_b64 = apply_brand_styling()
 
 df = load_portfolio_data(
     PORTFOLIO_FILE,
     PORTFOLIO_FILE.stat().st_mtime,
 )
 
-st.title("Análisis del Portafolio Corporativo")
-st.caption("Filtros dinámicos, concentración, KPIs y desglose por dimensiones.")
+title_html = """
+<div class="title-with-logo">
+    <h1>Análisis del Portafolio Corporativo</h1>
+"""
+
+if logo_b64:
+    title_html += f'<img src="data:image/jpeg;base64,{logo_b64}" alt="Logo" class="title-logo" />'
+
+title_html += "</div>"
+
+st.markdown(title_html, unsafe_allow_html=True)
+st.markdown(
+    '<p class="page-caption">Filtros dinámicos, concentración, KPIs y desglose por dimensiones.</p>',
+    unsafe_allow_html=True,
+)
 
 total_portfolio = df['US $ Equiv'].sum()
 
