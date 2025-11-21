@@ -291,11 +291,15 @@ def load_portfolio_data(file_path: Path, last_modified: float):
 
     # 6. Normalized maturity date
     if 'Maturity date' in df.columns:
-        df['Maturity date'] = pd.to_datetime(
+        df['Maturity date raw'] = df['Maturity date']
+        raw_maturity = pd.to_datetime(
             df['Maturity date'], errors='coerce', dayfirst=False
         )
-        # Sentinel dates (e.g., 1-Jan-9999) are considered not provided
-        df.loc[df['Maturity date'].dt.year >= 9999, 'Maturity date'] = pd.NaT
+        # Sentinel dates (e.g., 1-Jan-9999) and placeholder 1999 entries are
+        # considered not provided
+        invalid_year = (raw_maturity.dt.year >= 9999) | (raw_maturity.dt.year == 1999)
+        raw_maturity.loc[invalid_year] = pd.NaT
+        df['Maturity date'] = raw_maturity
 
     return df
 
@@ -346,10 +350,47 @@ def render_maturity_analysis(df):
         st.info("There is no maturity date column to analyze.")
         return
 
-    maturity_df = df[(df['Maturity date'].notna()) & (df['US $ Equiv'] > 0)].copy()
+    positive_df = df[df['US $ Equiv'] > 0]
+
+    maturity_df = positive_df[positive_df['Maturity date'].notna()].copy()
     if maturity_df.empty:
         st.info("There are no valid maturity dates with positive exposure.")
         return
+
+    validation_summary = pd.DataFrame(
+        {
+            "Records": [
+                len(positive_df),
+                len(positive_df) - len(maturity_df),
+                len(maturity_df),
+            ],
+            "Exposure (US$)": [
+                positive_df['US $ Equiv'].sum(),
+                positive_df.loc[positive_df['Maturity date'].isna(), 'US $ Equiv'].sum(),
+                maturity_df['US $ Equiv'].sum(),
+            ],
+        },
+        index=[
+            "Positive exposure (base)",
+            "Excluded: N/A / placeholder 1999",  # Converted to NaT during cleaning
+            "Included in maturity analysis",
+        ],
+    )
+
+    st.markdown("#### Data quality check")
+    st.caption(
+        "Maturity timing calculations exclude missing dates and placeholder 1999 values."
+    )
+    st.dataframe(
+        validation_summary.assign(
+            **{
+                "Exposure (US$)": validation_summary['Exposure (US$)'].apply(
+                    format_currency
+                )
+            }
+        ),
+        use_container_width=True,
+    )
 
     today = pd.Timestamp.today().normalize()
     maturity_df['Days to maturity'] = (
