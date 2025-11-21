@@ -1198,6 +1198,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
             "ExposureAtRisk:Q",
             title="Exposure at risk (US$)",
             scale=alt.Scale(range=[80, 1200]),
+            legend=alt.Legend(
+                orient="right",
+                titleLimit=300,
+                labelLimit=200,
+                symbolStrokeColor=BRAND_COLORS["primary"],
+            ),
         ),
         color=alt.Color(
             "RiskScore:Q",
@@ -1205,6 +1211,11 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
             scale=alt.Scale(
                 domain=[0, 12.5, 25],
                 range=CLIMATE_RISK_COLOR_RANGE,
+            ),
+            legend=alt.Legend(
+                orient="right",
+                titleLimit=300,
+                labelLimit=200,
             ),
         ),
         tooltip=[
@@ -1242,7 +1253,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     )
 
     st.markdown("#### Risk heatmap (impact vs. probability)")
-    st.altair_chart(scatter + labels, use_container_width=True)
+    risk_chart = (
+        (scatter + labels)
+        .properties(height=420, padding={"left": 5, "right": 160, "top": 5, "bottom": 5})
+        .configure_legend(titleLimit=320, labelLimit=260, labelFontSize=12, titleFontSize=13)
+    )
+    st.altair_chart(risk_chart, use_container_width=True)
 
     macro_rows = []
     for _, row in scored_df.iterrows():
