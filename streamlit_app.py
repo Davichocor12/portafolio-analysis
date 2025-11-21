@@ -28,6 +28,22 @@ BRAND_FONT = "Arial, sans-serif"
 BAR_COLOR_SEQUENCE = ["#be993c", "#5d9ea7"]
 BAR_COLOR_CYCLE = cycle(BAR_COLOR_SEQUENCE)
 
+CLIMATE_RISK_COLOR_RANGE = [
+    BRAND_COLORS["highlight"],
+    BRAND_COLORS["accent"],
+    BRAND_COLORS["primary"],
+]
+RISK_LEVEL_ORDER = ["No Data", "Low", "Medium-Low", "Medium", "High", "Critical"]
+RISK_LEVEL_COLORS = {
+    "No Data": "#e8eef2",
+    "Low": BRAND_COLORS["highlight"],
+    "Medium-Low": BRAND_COLORS["muted"],
+    "Medium": BRAND_COLORS["secondary"],
+    "High": BRAND_COLORS["accent"],
+    "Critical": BRAND_COLORS["primary"],
+}
+GDP_GROWTH_COLOR_RANGE = [BRAND_COLORS["accent"], "#ffffff", BRAND_COLORS["secondary"]]
+
 
 def get_last_modified_ts(path: Path) -> float:
     """Return the last modified timestamp or 0 if the file does not exist."""
@@ -282,7 +298,7 @@ def next_bar_color() -> str:
 
     return next(BAR_COLOR_CYCLE)
 
-# Archivo CSV
+# DATA FILE PATHS
 PORTFOLIO_FILE = (
     Path(__file__).parent
     / 'data'
@@ -408,7 +424,7 @@ def load_climate_risk_data(file_path: Path, last_modified: float) -> pd.DataFram
     return df
 
 # ============================================
-# FUNCIONES AUXILIARES
+# HELPER FUNCTIONS
 # ============================================
 
 def format_currency(value: float) -> str:
@@ -684,7 +700,7 @@ def render_eligible_activity_analysis(df: pd.DataFrame):
         .melt(
             id_vars=['index', 'US $ Equiv'],
             value_vars=eligible_cols,
-            var_name='Campo Eligible Activity',
+            var_name='Eligible Activity field',
             value_name='Eligible Activity',
         )
     )
@@ -879,7 +895,7 @@ def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     c3.metric("Portfolio share", f"{participation:.2f}%")
 
 # ============================================
-# RENDER: BREAKDOWNS (BARRAS + PIE)
+# RENDER: BREAKDOWNS (BAR + PIE)
 # ============================================
 
 def render_breakdown(df, column, title, label, include_pie=True, show_table=False):
@@ -887,13 +903,13 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 
     options = sorted(df[column].unique())
     selected_options = st.multiselect(
-        f"{label} a mostrar", options, default=options, key=f"breakdown_{column}"
+        f"{label} to display", options, default=options, key=f"breakdown_{column}"
     )
     values = selected_options if selected_options else options
 
     col1, col2 = st.columns(2)
 
-    # ----- BARRAS -----
+    # ----- BAR CHART -----
     with col1:
         df_f = df[df[column].isin(values)]
         if df_f.empty:
@@ -913,7 +929,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
             return
 
         total = g['US $ Equiv'].sum()
-        g['Porcentaje'] = g['US $ Equiv'] / total
+        g['Share'] = g['US $ Equiv'] / total
 
         chart = (
             alt.Chart(g)
@@ -924,16 +940,16 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
                 tooltip=[
                     f"{column}:N",
                     alt.Tooltip("US $ Equiv:Q", format=",.0f"),
-                    alt.Tooltip("Porcentaje:Q", format=".1%"),
+                    alt.Tooltip("Share:Q", format=".1%"),
                 ],
             )
         )
         st.altair_chart(chart, use_container_width=True)
         st.markdown(
-            f"**Total {label.lower()} seleccionado:** {format_currency(total)}",
+            f"**Total exposure for selected {label.lower()} values:** {format_currency(total)}",
         )
 
-    # ----- PIE -----
+    # ----- PIE CHART -----
     if include_pie:
         with col2:
             df_p = df[df[column].isin(values)]
@@ -957,7 +973,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
                 st.info("There are no positive values for the pie chart.")
                 return
 
-            g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
+            g2['Share'] = g2['US $ Equiv'] / total_pie
 
             domain = g2[column].tolist()
             palette = [CATEGORY10[i % len(CATEGORY10)] for i in range(len(domain))]
@@ -975,7 +991,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
                     tooltip=[
                         f"{column}:N",
                         alt.Tooltip("US $ Equiv:Q", format=",.0f"),
-                        alt.Tooltip("Porcentaje:Q", format=".1%"),
+                        alt.Tooltip("Share:Q", format=".1%"),
                     ],
                 )
             )
@@ -985,14 +1001,14 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
                 st.altair_chart(pie, use_container_width=True)
 
             legend_lines = []
-            for _, row in g2.sort_values('Porcentaje', ascending=False).iterrows():
+            for _, row in g2.sort_values('Share', ascending=False).iterrows():
                 color = color_map.get(row[column], BRAND_COLORS["muted"])
                 legend_lines.append(
                     (
                         "<div style='display:flex;align-items:center;margin-bottom:6px;'>"
                         f"<span style='width:14px;height:14px;display:inline-block;"
                         f"border-radius:3px;background:{color};margin-right:8px;'></span>"
-                        f"<span>{row[column]}: {(row['Porcentaje'] * 100):.1f}%</span>"
+                        f"<span>{row[column]}: {(row['Share'] * 100):.1f}%</span>"
                         "</div>"
                     )
                 )
@@ -1038,7 +1054,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 
     st.subheader("Exposure Climate Risk")
     st.caption(
-        "Riesgo climático derivado de la dependencia del turismo y la frecuencia de eventos extremos."
+        "Climate risk derived from tourism dependence and the recurrence of extreme weather events."
     )
 
     filtered_countries = sorted(plot_df["Country"].unique()) if not plot_df.empty else []
@@ -1062,8 +1078,8 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 
     if missing_countries:
         st.caption(
-            f"Países sin información climática en el dataset: {', '.join(missing_countries)}. "
-            "Se muestran como 'No Data' para mantener la coherencia del filtro."
+            f"Countries without climate information in the dataset: {', '.join(missing_countries)}. "
+            "They appear as 'No Data' to stay aligned with the applied filters."
         )
 
     gdp_cols = [col for col in risk_df.columns if col.startswith("GDP_")]
@@ -1075,7 +1091,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     scored_df["RiskScore"] = scored_df["ImpactScore"] * scored_df["ProbabilityScore"]
     scored_df["RiskLevel"] = scored_df["RiskScore"].apply(assign_risk_level)
 
-    st.markdown("#### Matriz de riesgo")
+    st.markdown("#### Risk matrix")
     matrix_display = scored_df[
         ["Country", "ImpactScore", "ProbabilityScore", "RiskScore", "RiskLevel"]
     ].sort_values("RiskScore", ascending=False)
@@ -1096,12 +1112,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     base = alt.Chart(heat_df).encode(
         x=alt.X(
             "ImpactScore:Q",
-            title="Impacto (Tourism GDP)",
+            title="Impact (Tourism GDP share)",
             scale=alt.Scale(domain=[0, 5], nice=False),
         ),
         y=alt.Y(
             "ProbabilityScore:Q",
-            title="Probabilidad (Frecuencia)",
+            title="Probability (Event frequency)",
             scale=alt.Scale(domain=[0, 5], nice=False),
         ),
     )
@@ -1110,12 +1126,15 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         color=alt.Color(
             "RiskScore:Q",
             title="Risk score",
-            scale=alt.Scale(scheme="yelloworangered"),
+            scale=alt.Scale(
+                domain=[0, 12.5, 25],
+                range=CLIMATE_RISK_COLOR_RANGE,
+            ),
         ),
         tooltip=[
             "Country:N",
             alt.Tooltip("ImpactScore:Q", title="Impact"),
-            alt.Tooltip("ProbabilityScore:Q", title="Probabilidad"),
+            alt.Tooltip("ProbabilityScore:Q", title="Probability"),
             alt.Tooltip("RiskScore:Q", title="Risk score"),
             "RiskLevel:N",
         ],
@@ -1137,7 +1156,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         )
     )
 
-    st.markdown("#### Heatmap de riesgo (impacto vs. probabilidad)")
+    st.markdown("#### Risk heatmap (impact vs. probability)")
     st.altair_chart(scatter + labels, use_container_width=True)
 
     macro_rows = []
@@ -1172,27 +1191,34 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
     )
 
-    st.markdown("#### KPIs macroeconómicos (crecimiento PIB)")
+    st.markdown("#### Macroeconomic KPIs (GDP growth)")
     st.dataframe(macro_display, use_container_width=True)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("#### RiskScore (descendente)")
+        st.markdown("#### RiskScore (descending)")
         bar_chart = (
             alt.Chart(scored_df)
             .mark_bar()
             .encode(
                 x=alt.X("Country:N", sort="-y", title="Country"),
                 y=alt.Y("RiskScore:Q", title="Risk score"),
-                color=alt.Color("RiskLevel:N", scale=alt.Scale(scheme="yelloworangered")),
+                color=alt.Color(
+                    "RiskLevel:N",
+                    title="Risk level",
+                    scale=alt.Scale(
+                        domain=RISK_LEVEL_ORDER,
+                        range=[RISK_LEVEL_COLORS[level] for level in RISK_LEVEL_ORDER],
+                    ),
+                ),
                 tooltip=["Country:N", "RiskScore:Q", "RiskLevel:N"],
             )
         )
         st.altair_chart(bar_chart, use_container_width=True)
 
     with col2:
-        st.markdown("#### Crecimiento del PIB por año y país")
+        st.markdown("#### GDP growth by year and country")
         gdp_long = scored_df.melt(
             id_vars=["Country"], value_vars=gdp_cols, var_name="Year", value_name="GDPGrowth"
         ).dropna()
@@ -1202,12 +1228,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
             alt.Chart(gdp_long)
             .mark_rect()
             .encode(
-                x=alt.X("Year:O", title="Año"),
+                x=alt.X("Year:O", title="Year"),
                 y=alt.Y("Country:N", sort=matrix_display["Country"].tolist(), title="Country"),
                 color=alt.Color(
                     "GDPGrowth:Q",
                     title="GDP growth %",
-                    scale=alt.Scale(scheme="redblue", domainMid=0),
+                    scale=alt.Scale(range=GDP_GROWTH_COLOR_RANGE, domainMid=0),
                 ),
                 tooltip=["Country:N", "Year:N", alt.Tooltip("GDPGrowth:Q", format=".1f")],
             )
@@ -1495,7 +1521,7 @@ def render_top_bottom(df, n=10):
 
 
 # ============================================
-# APP PRINCIPAL
+# MAIN APP
 # ============================================
 
 logo_b64 = apply_brand_styling()
@@ -1566,7 +1592,7 @@ if fdf.empty:
     st.stop()
 
 # ------------------------------
-# SECCIONES
+# SECTIONS
 # ------------------------------
 
 st.header("General summary")
