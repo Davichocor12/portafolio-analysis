@@ -1054,7 +1054,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 
     st.subheader("Exposure Climate Risk")
     st.caption(
-        "Climate risk derived from tourism dependence and the recurrence of extreme weather events."
+        "Climate risk derived from tourism dependence, exposure concentration, and the recurrence of extreme weather events."
     )
 
     filtered_countries = sorted(plot_df["Country"].unique()) if not plot_df.empty else []
@@ -1084,17 +1084,41 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 
     gdp_cols = [col for col in risk_df.columns if col.startswith("GDP_")]
 
+    exposure_by_country = (
+        plot_df.groupby("Country")["US $ Equiv"].sum().reset_index(name="Exposure")
+        if "US $ Equiv" in plot_df.columns and not plot_df.empty
+        else pd.DataFrame({"Country": [], "Exposure": []})
+    )
+
     scored_df = risk_df.assign(
         ImpactScore=risk_df["TourismGDP"].apply(tourism_impact_score),
         ProbabilityScore=risk_df["FrequencyYears"].apply(frequency_probability_score),
     )
     scored_df["RiskScore"] = scored_df["ImpactScore"] * scored_df["ProbabilityScore"]
     scored_df["RiskLevel"] = scored_df["RiskScore"].apply(assign_risk_level)
+    scored_df = scored_df.merge(exposure_by_country, on="Country", how="left")
+    scored_df["Exposure"] = scored_df["Exposure"].fillna(0)
+    scored_df["RiskWeight"] = (scored_df["ProbabilityScore"] / 5) * (
+        scored_df["ImpactScore"] / 5
+    )
+    scored_df["ExposureAtRisk"] = scored_df["Exposure"] * scored_df["RiskWeight"]
 
-    st.markdown("#### Risk matrix")
+    st.markdown("#### Risk matrix (weighted by exposure)")
     matrix_display = scored_df[
-        ["Country", "ImpactScore", "ProbabilityScore", "RiskScore", "RiskLevel"]
-    ].sort_values("RiskScore", ascending=False)
+        [
+            "Country",
+            "Exposure",
+            "ImpactScore",
+            "ProbabilityScore",
+            "RiskScore",
+            "RiskLevel",
+            "ExposureAtRisk",
+        ]
+    ].sort_values(["ExposureAtRisk", "RiskScore"], ascending=False)
+    matrix_display["Exposure"] = matrix_display["Exposure"].apply(format_currency)
+    matrix_display["ExposureAtRisk"] = matrix_display["ExposureAtRisk"].apply(
+        format_currency
+    )
     st.dataframe(matrix_display, use_container_width=True)
 
     heat_df = scored_df.copy()
@@ -1164,46 +1188,57 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         growth = row[gdp_cols].dropna()
         avg_growth = growth.mean() if not growth.empty else pd.NA
         volatility = growth.std() if not growth.empty else pd.NA
-        best_year = growth.idxmax() if not growth.empty else None
-        worst_year = growth.idxmin() if not growth.empty else None
         cumulative = (growth.div(100).add(1).prod() - 1) if not growth.empty else pd.NA
+        annual_event_prob = (1 / row["FrequencyYears"]) if row["FrequencyYears"] else pd.NA
 
         macro_rows.append(
             {
                 "Country": row["Country"],
+                "Tourism GDP %": row.get("TourismGDP", pd.NA),
                 "Avg GDP growth": avg_growth,
                 "Volatility": volatility,
-                "Best year": best_year.replace("GDP_", "") if best_year else "N/A",
-                "Worst year": worst_year.replace("GDP_", "") if worst_year else "N/A",
+                "Resilience": (avg_growth / volatility)
+                if pd.notna(avg_growth) and pd.notna(volatility) and volatility != 0
+                else pd.NA,
+                "Annual event probability": annual_event_prob,
                 "Cumulative growth": cumulative,
             }
         )
 
     macro_df = pd.DataFrame(macro_rows)
     macro_display = macro_df.copy()
+    macro_display["Tourism GDP %"] = macro_display["Tourism GDP %"].map(
+        lambda x: f"{x:.0f}%" if pd.notna(x) else "N/A"
+    )
     macro_display["Avg GDP growth"] = macro_display["Avg GDP growth"].map(
         lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
     )
     macro_display["Volatility"] = macro_display["Volatility"].map(
         lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A"
     )
+    macro_display["Resilience"] = macro_display["Resilience"].map(
+        lambda x: f"{x:.2f}x" if pd.notna(x) else "N/A"
+    )
+    macro_display["Annual event probability"] = macro_display[
+        "Annual event probability"
+    ].map(lambda x: f"{x:.1%}" if pd.notna(x) else "N/A")
     macro_display["Cumulative growth"] = macro_display["Cumulative growth"].map(
         lambda x: f"{x:.1%}" if pd.notna(x) else "N/A"
     )
 
-    st.markdown("#### Macroeconomic KPIs (GDP growth)")
+    st.markdown("#### Macroeconomic KPIs (GDP growth & hazard pressure)")
     st.dataframe(macro_display, use_container_width=True)
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("#### RiskScore (descending)")
+        st.markdown("#### Exposure at risk (descending)")
         bar_chart = (
             alt.Chart(scored_df)
             .mark_bar()
             .encode(
                 x=alt.X("Country:N", sort="-y", title="Country"),
-                y=alt.Y("RiskScore:Q", title="Risk score"),
+                y=alt.Y("ExposureAtRisk:Q", title="Exposure at risk (US$)"),
                 color=alt.Color(
                     "RiskLevel:N",
                     title="Risk level",
@@ -1212,7 +1247,14 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
                         range=[RISK_LEVEL_COLORS[level] for level in RISK_LEVEL_ORDER],
                     ),
                 ),
-                tooltip=["Country:N", "RiskScore:Q", "RiskLevel:N"],
+                tooltip=[
+                    "Country:N",
+                    alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
+                    alt.Tooltip(
+                        "ExposureAtRisk:Q", format=",.0f", title="Exposure at risk"
+                    ),
+                    "RiskLevel:N",
+                ],
             )
         )
         st.altair_chart(bar_chart, use_container_width=True)
