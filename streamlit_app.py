@@ -1093,6 +1093,9 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     scored_df = risk_df.assign(
         ImpactScore=risk_df["TourismGDP"].apply(tourism_impact_score),
         ProbabilityScore=risk_df["FrequencyYears"].apply(frequency_probability_score),
+        AnnualEventProbability=risk_df["FrequencyYears"].apply(
+            lambda years: (1 / years) if pd.notna(years) and years > 0 else 0
+        ),
     )
     scored_df["RiskScore"] = scored_df["ImpactScore"] * scored_df["ProbabilityScore"]
     scored_df["RiskLevel"] = scored_df["RiskScore"].apply(assign_risk_level)
@@ -1102,21 +1105,65 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         scored_df["ImpactScore"] / 5
     )
     scored_df["ExposureAtRisk"] = scored_df["Exposure"] * scored_df["RiskWeight"]
+    scored_df["ExpectedAnnualLoss"] = (
+        scored_df["Exposure"]
+        * scored_df["AnnualEventProbability"]
+        * (scored_df["ImpactScore"] / 5)
+    )
+
+    total_exposure = scored_df["Exposure"].sum()
+    total_exposure_at_risk = scored_df["ExposureAtRisk"].sum()
+    scored_df["ExposureShare"] = (
+        scored_df["Exposure"] / total_exposure if total_exposure else 0
+    )
+    scored_df["RiskContribution"] = (
+        scored_df["ExposureAtRisk"] / total_exposure_at_risk
+        if total_exposure_at_risk
+        else 0
+    )
+
+    kpi_col1, kpi_col2, kpi_col3 = st.columns(3)
+    kpi_col1.metric(
+        "Total exposure", format_currency(total_exposure), help="Sum of all exposure"
+    )
+    kpi_col2.metric(
+        "Exposure at risk",
+        format_currency(total_exposure_at_risk),
+        help="Exposure weighted by climate risk",
+    )
+    weighted_risk = (
+        (total_exposure_at_risk / total_exposure) if total_exposure else 0
+    )
+    kpi_col3.metric(
+        "Avg risk weight", f"{weighted_risk:.1%}", help="Risk-weighted exposure factor"
+    )
 
     st.markdown("#### Risk matrix (weighted by exposure)")
     matrix_display = scored_df[
         [
             "Country",
             "Exposure",
+            "ExposureShare",
             "ImpactScore",
             "ProbabilityScore",
             "RiskScore",
             "RiskLevel",
             "ExposureAtRisk",
+            "RiskContribution",
+            "ExpectedAnnualLoss",
         ]
     ].sort_values(["ExposureAtRisk", "RiskScore"], ascending=False)
     matrix_display["Exposure"] = matrix_display["Exposure"].apply(format_currency)
+    matrix_display["ExposureShare"] = matrix_display["ExposureShare"].map(
+        lambda x: f"{x:.1%}"
+    )
     matrix_display["ExposureAtRisk"] = matrix_display["ExposureAtRisk"].apply(
+        format_currency
+    )
+    matrix_display["RiskContribution"] = matrix_display["RiskContribution"].map(
+        lambda x: f"{x:.1%}"
+    )
+    matrix_display["ExpectedAnnualLoss"] = matrix_display["ExpectedAnnualLoss"].apply(
         format_currency
     )
     st.dataframe(matrix_display, use_container_width=True)
@@ -1146,7 +1193,12 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         ),
     )
 
-    scatter = base.mark_circle(size=220).encode(
+    scatter = base.mark_circle().encode(
+        size=alt.Size(
+            "ExposureAtRisk:Q",
+            title="Exposure at risk (US$)",
+            scale=alt.Scale(range=[80, 1200]),
+        ),
         color=alt.Color(
             "RiskScore:Q",
             title="Risk score",
@@ -1157,9 +1209,18 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         ),
         tooltip=[
             "Country:N",
+            alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
+            alt.Tooltip(
+                "ExposureAtRisk:Q", format=",.0f", title="Exposure at risk (US$)"
+            ),
             alt.Tooltip("ImpactScore:Q", title="Impact"),
             alt.Tooltip("ProbabilityScore:Q", title="Probability"),
             alt.Tooltip("RiskScore:Q", title="Risk score"),
+            alt.Tooltip(
+                "ExpectedAnnualLoss:Q",
+                format=",.0f",
+                title="Expected annual loss (US$)",
+            ),
             "RiskLevel:N",
         ],
     )
@@ -1189,7 +1250,11 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         avg_growth = growth.mean() if not growth.empty else pd.NA
         volatility = growth.std() if not growth.empty else pd.NA
         cumulative = (growth.div(100).add(1).prod() - 1) if not growth.empty else pd.NA
-        annual_event_prob = (1 / row["FrequencyYears"]) if row["FrequencyYears"] else pd.NA
+        annual_event_prob = (
+            row["AnnualEventProbability"]
+            if pd.notna(row.get("AnnualEventProbability"))
+            else pd.NA
+        )
 
         macro_rows.append(
             {
@@ -1297,6 +1362,18 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         )
 
         st.altair_chart(heatmap + heatmap_labels, use_container_width=True)
+
+    st.markdown(
+        """
+        **Methodology and calculations**
+
+        - **Risk matrix**: combines the probability of extreme climate events (recurrence in years) with their **impact** (tourism GDP dependence). Countries are positioned by these two axes, colored by the composite **Risk score = Impact × Probability**, and bubble size reflects **Exposure at risk** so concentration is visible.
+        - **Risk weights**: exposure is multiplied by a normalized weight `Risk weight = (Probability / 5) × (Impact / 5)` to obtain **Exposure at risk**. This anchors the scale between 0% and 100% of nominal exposure.
+        - **Expected annual loss**: approximates downside using the event probability and impact severity: `Exposure × Annual event probability × (Impact / 5)`.
+        - **Portfolio contributions**: **Exposure share** and **Risk contribution** express each country's share of total exposure and of total risk-weighted exposure.
+        - **Macroeconomic KPIs**: average GDP growth and standard deviation provide the **Resilience ratio (avg ÷ volatility)**. Growth rates are compounded to show **Cumulative growth**, while **Annual event probability = 1 ÷ frequency (years)** links hazard pressure to the portfolio.
+        """
+    )
 
 
 # ============================================
