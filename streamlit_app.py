@@ -242,12 +242,16 @@ def load_portfolio_data(file_path: Path, last_modified: float):
             try:
                 df = pd.read_excel(alt_file)
             except Exception as e:
-            st.error(f"The portfolio file could not be read: {e}")
+                st.error(f"The portfolio file could not be read: {e}")
+                st.stop()
+        else:
+            st.error(
+                "The portfolio file (CSV or XLSX) was not found in the data folder."
+            )
             st.stop()
-    else:
-        st.error(
-            "The portfolio file (CSV or XLSX) was not found in the data folder."
-        )
+
+    if df is None:
+        st.error("The portfolio file could not be read.")
         st.stop()
 
     # 1. CLEAN COLUMN NAMES
