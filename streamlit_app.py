@@ -1367,11 +1367,14 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         """
         **Methodology and calculations**
 
-        - **Risk matrix**: combines the probability of extreme climate events (recurrence in years) with their **impact** (tourism GDP dependence). Countries are positioned by these two axes, colored by the composite **Risk score = Impact × Probability**, and bubble size reflects **Exposure at risk** so concentration is visible.
-        - **Risk weights**: exposure is multiplied by a normalized weight `Risk weight = (Probability / 5) × (Impact / 5)` to obtain **Exposure at risk**. This anchors the scale between 0% and 100% of nominal exposure.
-        - **Expected annual loss**: approximates downside using the event probability and impact severity: `Exposure × Annual event probability × (Impact / 5)`.
-        - **Portfolio contributions**: **Exposure share** and **Risk contribution** express each country's share of total exposure and of total risk-weighted exposure.
-        - **Macroeconomic KPIs**: average GDP growth and standard deviation provide the **Resilience ratio (avg ÷ volatility)**. Growth rates are compounded to show **Cumulative growth**, while **Annual event probability = 1 ÷ frequency (years)** links hazard pressure to the portfolio.
+        - **Impact score (0–5)** is derived from tourism GDP dependence: 0 = no data/≤0%, 1 = 0–20%, 2 = 20–40%, 3 = 40–60%, 4 = 60–80%, 5 = >80%.
+        - **Probability score (0–5)** converts recurrence in years into a 5-point scale: 0 = no data/≤0 years, 5 = <5 years, 4 = 5–10, 3 = 10–15, 2 = 15–25, 1 = >25. The inverse `Annual event probability = 1 ÷ frequency (years)` is used for loss estimates.
+        - **Risk score & level**: `Risk score = Impact × Probability`. Levels are assigned as **No Data** (=0), **Low** (1–5), **Medium-Low** (6–10), **Medium** (11–15), **High** (16–20), **Critical** (>20).
+        - **Risk weight and exposure at risk**: exposure is scaled by `Risk weight = (Probability / 5) × (Impact / 5)`, yielding **Exposure at risk = Exposure × Risk weight** (0–100% of nominal exposure).
+        - **Risk contribution** shows each country's share of total risk-weighted exposure: `Exposure at risk ÷ Σ(Exposure at risk)`. **Exposure share** uses nominal exposure in the same way.
+        - **Expected annual loss**: approximates downside using the hazard rate and severity: `Exposure × Annual event probability × (Impact / 5)`.
+        - **Average risk weight**: portfolio-level ratio `Σ(Exposure at risk) ÷ Σ(Exposure)`, displayed as a percentage in the KPI row.
+        - **Macroeconomic KPIs**: `Volatility` is the standard deviation of historical GDP growth, **Resilience = avg growth ÷ volatility** (when volatility > 0), and **Cumulative growth** compounds the growth series: `(∏(1 + growth%)) – 1`.
         """
     )
 
