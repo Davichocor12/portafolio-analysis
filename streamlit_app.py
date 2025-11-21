@@ -1321,15 +1321,23 @@ def render_heatmap(df: pd.DataFrame):
         ],
     )
 
-    labels = base.mark_text(
-        align="center",
-        baseline="middle",
-        dy=-12,
-        color=BRAND_COLORS["primary"],
-        fontWeight="bold",
-    ).encode(text=alt.Text("Country:N"))
+    label_data = df.sort_values("Exposure", ascending=False).head(12)
+    labels = (
+        alt.Chart(label_data)
+        .mark_text(
+            align="center",
+            baseline="middle",
+            dy=-12,
+            color=BRAND_COLORS["primary"],
+            fontWeight="bold",
+            fontSize=11,
+        )
+        .encode(text=alt.Text("Country:N"))
+    )
 
-    st.altair_chart(alt.layer(circles, labels).properties(height=420), use_container_width=True)
+    st.altair_chart(
+        alt.layer(circles, labels).properties(height=420), use_container_width=True
+    )
 
 
 def render_kpis(df: pd.DataFrame):
@@ -1442,8 +1450,13 @@ def render_risk_bar(df: pd.DataFrame):
         )
 
         heatmap_labels = heatmap.mark_text(
-            color=BRAND_COLORS["primary"],
             fontWeight="bold",
+            fontSize=12,
+            color=alt.condition(
+                alt.datum.GDPGrowth >= 0,
+                alt.value(BRAND_COLORS["primary"]),
+                alt.value("#ffffff"),
+            ),
         ).encode(text=alt.Text("GDPGrowth:Q", format=".1f"))
 
         st.altair_chart(alt.layer(heatmap, heatmap_labels), use_container_width=True)
@@ -1631,6 +1644,12 @@ with st.sidebar.expander("Filters (multiple selection)", expanded=True):
         if state_key not in st.session_state:
             st.session_state[state_key] = options
 
+        # Keep the stored selection aligned with the currently available options
+        stored_selection = [val for val in st.session_state[state_key] if val in options]
+        if not stored_selection:
+            stored_selection = options
+            st.session_state[state_key] = stored_selection
+
         if st.button(
             "Select all",
             key=button_key,
@@ -1638,8 +1657,13 @@ with st.sidebar.expander("Filters (multiple selection)", expanded=True):
             use_container_width=True,
         ):
             st.session_state[state_key] = options
+            stored_selection = options
 
-        sel = st.multiselect(label, options, default=st.session_state[state_key], key=state_key)
+        sel = st.multiselect(label, options, default=stored_selection, key=state_key)
+        if not sel:
+            sel = options
+            st.session_state[state_key] = sel
+
         fdf = fdf[fdf[col].isin(sel)]
 
 if fdf.empty:
@@ -1662,20 +1686,8 @@ if plot_df.empty:
 else:
     st.header("Breakdown by dimensions")
 
-    st.markdown("#### Country focus (applies to exposure and hurricane risk)")
-    country_options = sorted(plot_df["Country"].unique())
-    selected_countries = st.multiselect(
-        "Countries", country_options, default=country_options, key="country_focus_filter"
-    )
-
-    country_filtered_df = plot_df[plot_df["Country"].isin(selected_countries)]
-    if country_filtered_df.empty:
-        st.info("Select at least one country to display exposure and hurricane risk.")
-    else:
-        render_breakdown(
-            country_filtered_df, "Country", "Exposure by country", "Country"
-        )
-        render_hurricane_tourism_section(country_filtered_df)
+    render_breakdown(plot_df, "Country", "Exposure by country", "Country")
+    render_hurricane_tourism_section(plot_df)
 
     render_exposure_by_dimension(plot_df)
     st.divider()
