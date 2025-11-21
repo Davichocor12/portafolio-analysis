@@ -28,6 +28,15 @@ BRAND_FONT = "Arial, sans-serif"
 BAR_COLOR_SEQUENCE = ["#be993c", "#5d9ea7"]
 BAR_COLOR_CYCLE = cycle(BAR_COLOR_SEQUENCE)
 
+
+def get_last_modified_ts(path: Path) -> float:
+    """Return the last modified timestamp or 0 if the file does not exist."""
+
+    try:
+        return path.stat().st_mtime
+    except FileNotFoundError:
+        return 0.0
+
 def _country_key(value: str) -> str:
     """Normalize textual differences to compare country names reliably."""
 
@@ -1004,17 +1013,24 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
             return
 
         total_table = table['Exposure'].sum()
-        table_display = table.assign(
-            **{
+        if total_table > 0:
+            share_display = table['Exposure'] / total_table
+            share_display = share_display.apply(lambda x: f"{x:.1%}")
+        else:
+            share_display = pd.Series(
+                ["0.0%"] * len(table), index=table.index, dtype="object"
+            )
+
+        table_display = pd.DataFrame(
+            {
+                label: table[column],
                 "Exposure (US$)": table['Exposure'].apply(format_currency),
-                "Share": table['Exposure'].apply(
-                    lambda v: f"{(v / total_table):.1%}" if total_table else "0.0%"
-                ),
+                "Share": share_display,
             }
-        )[[column, "Exposure (US$)", "Share"]]
+        )
 
         st.markdown(f"**Exposure details by {label.lower()}**")
-        st.dataframe(table_display.rename(columns={column: label}), use_container_width=True)
+        st.dataframe(table_display, use_container_width=True)
 
 
 def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame):
@@ -1452,11 +1468,11 @@ logo_b64 = apply_brand_styling()
 
 df = load_portfolio_data(
     PORTFOLIO_FILE,
-    PORTFOLIO_FILE.stat().st_mtime,
+    get_last_modified_ts(PORTFOLIO_FILE),
 )
 climate_df = load_climate_risk_data(
     CLIMATE_RISK_FILE,
-    CLIMATE_RISK_FILE.stat().st_mtime,
+    get_last_modified_ts(CLIMATE_RISK_FILE),
 )
 
 title_html = """
