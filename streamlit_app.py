@@ -20,25 +20,11 @@ CATEGORY10 = [
 BRAND_COLORS = {
     "primary": "#0b3d6d",  # Azul oscuro principal
     "secondary": "#125f82",  # Azul verdoso para subtítulos
-    "accent": "#1a9c9c",  # Agua marino para detalles
-    "neutral": "#0f2947",  # Texto principal azul oscuro
-    "muted": "#4a5d73",  # Texto secundario
+    "accent": "#1a9c9c",  # Verde azulado para detalles
+    "neutral": "#12263f",  # Texto principal oscuro
+    "muted": "#5c6b7a",  # Texto secundario
     "highlight": "#78b48c",  # Verde claro para resaltes
-    "soft-primary": "#1f5c97",  # Tonalidad media para gráficos
-    "soft-secondary": "#1789ad",  # Tonalidad clara para gráficos
-    "soft-accent": "#35b3b3",  # Tonalidad brillante
 }
-BRAND_PALETTE = [
-    BRAND_COLORS["primary"],
-    BRAND_COLORS["secondary"],
-    BRAND_COLORS["accent"],
-    BRAND_COLORS["soft-primary"],
-    BRAND_COLORS["soft-secondary"],
-    BRAND_COLORS["soft-accent"],
-    BRAND_COLORS["highlight"],
-]
-BRAND_HEAT_GRADIENT = ["#e8f1f8", "#b6d0e6", "#5c92c4", BRAND_COLORS["primary"]]
-BRAND_ACCENT_GRADIENT = ["#e6f6f6", "#b0e1e1", "#6ac1c1", BRAND_COLORS["accent"]]
 BRAND_FONT = "Arial, sans-serif"
 
 # ============================================
@@ -98,7 +84,6 @@ def apply_brand_styling():
             html, body, .stApp {{
                 font-family: var(--brand-font) !important;
                 color: var(--brand-neutral);
-                background-color: #f7fafc;
             }}
 
             h1, h2 {{
@@ -143,35 +128,10 @@ def apply_brand_styling():
                 color: white !important;
             }}
 
-            [data-testid="stSidebar"] {{
-                background: linear-gradient(180deg, rgba(11,61,109,0.95), rgba(26,156,156,0.9));
-                color: #ffffff;
-            }}
-            [data-testid="stSidebar"] * {{
-                color: #ffffff !important;
-                font-family: var(--brand-font) !important;
-            }}
-            [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {{
-                background-color: rgba(255,255,255,0.08);
-                border-radius: 6px;
-            }}
-            [data-testid="stSidebar"] .stMultiSelect span {{
-                color: #ffffff !important;
-            }}
-
-            /* Filtros/expanders sobre fondo oscuro */
-            [data-testid="stExpander"] > details > summary {{
-                background-color: rgba(15,41,71,0.9);
-                color: #ffffff;
-            }}
-            [data-testid="stExpander"] .streamlit-expanderContent {{
-                background-color: rgba(26,156,156,0.1);
-            }}
-
             /* Logo fijo en la esquina superior derecha */
             .app-logo {{
                 position: fixed;
-                top: 32px;
+                top: 14px;
                 right: 20px;
                 width: 150px;
                 z-index: 1000;
