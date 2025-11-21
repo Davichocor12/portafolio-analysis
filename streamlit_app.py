@@ -1,3 +1,4 @@
+import base64
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -16,6 +17,30 @@ CATEGORY10 = [
     "#17becf",
 ]
 
+BRAND_COLORS = {
+    "primary": "#0b3d6d",  # Azul oscuro principal
+    "secondary": "#125f82",  # Azul verdoso para subtítulos
+    "accent": "#1a9c9c",  # Agua marino para detalles
+    "neutral": "#0f2947",  # Texto principal azul oscuro
+    "muted": "#4a5d73",  # Texto secundario
+    "highlight": "#78b48c",  # Verde claro para resaltes
+    "soft-primary": "#1f5c97",  # Tonalidad media para gráficos
+    "soft-secondary": "#1789ad",  # Tonalidad clara para gráficos
+    "soft-accent": "#35b3b3",  # Tonalidad brillante
+}
+BRAND_PALETTE = [
+    BRAND_COLORS["primary"],
+    BRAND_COLORS["secondary"],
+    BRAND_COLORS["accent"],
+    BRAND_COLORS["soft-primary"],
+    BRAND_COLORS["soft-secondary"],
+    BRAND_COLORS["soft-accent"],
+    BRAND_COLORS["highlight"],
+]
+BRAND_HEAT_GRADIENT = ["#e8f1f8", "#b6d0e6", "#5c92c4", BRAND_COLORS["primary"]]
+BRAND_ACCENT_GRADIENT = ["#e6f6f6", "#b0e1e1", "#6ac1c1", BRAND_COLORS["accent"]]
+BRAND_FONT = "Arial, sans-serif"
+
 # ============================================
 # CONFIGURACIÓN GENERAL
 # ============================================
@@ -27,6 +52,147 @@ st.set_page_config(
     page_icon=':bar_chart:',
     layout='wide',
 )
+
+
+def encode_logo(logo_path: Path) -> str | None:
+    """Convertir el logo a base64 para incrustarlo en HTML.
+
+    Retorna ``None`` si el archivo no existe o no se puede leer.
+    """
+
+    try:
+        return base64.b64encode(logo_path.read_bytes()).decode()
+    except FileNotFoundError:
+        return None
+
+
+def apply_brand_styling():
+    """Aplicar tipografía, colores y logo de la paleta corporativa."""
+
+    logo_path = Path(__file__).parent / "logo.jpg"
+    logo_b64 = encode_logo(logo_path)
+
+    logo_block = (
+        f"""
+        <div class="app-logo">
+            <img src="data:image/jpeg;base64,{logo_b64}" alt="Logo" />
+        </div>
+        """
+        if logo_b64
+        else ""
+    )
+
+    st.markdown(
+        f"""
+        <style>
+            :root {{
+                --brand-primary: {BRAND_COLORS["primary"]};
+                --brand-secondary: {BRAND_COLORS["secondary"]};
+                --brand-accent: {BRAND_COLORS["accent"]};
+                --brand-neutral: {BRAND_COLORS["neutral"]};
+                --brand-muted: {BRAND_COLORS["muted"]};
+                --brand-highlight: {BRAND_COLORS["highlight"]};
+                --brand-font: {BRAND_FONT};
+            }}
+
+            html, body, .stApp {{
+                font-family: var(--brand-font) !important;
+                color: var(--brand-neutral);
+                background-color: #f7fafc;
+            }}
+
+            h1, h2 {{
+                color: var(--brand-primary);
+                font-weight: 700;
+                letter-spacing: 0.02em;
+            }}
+
+            h3, h4 {{
+                color: var(--brand-secondary);
+                font-weight: 600;
+            }}
+
+            p, span, label, .stMarkdown {{
+                color: var(--brand-neutral);
+            }}
+
+            .stCaption, .st-emotion-cache-1q7q0r2 {{
+                color: var(--brand-muted) !important;
+                font-size: 0.95rem;
+            }}
+
+            /* Ajuste de métricas */
+            [data-testid="stMetric"] label, [data-testid="stMetricLabel"] {{
+                color: var(--brand-muted);
+                font-size: 0.95rem;
+            }}
+            [data-testid="stMetricValue"] {{
+                color: var(--brand-primary);
+                font-weight: 700;
+            }}
+
+            /* Botones y selectores */
+            button {{
+                background-color: var(--brand-primary) !important;
+                color: white !important;
+                border-radius: 6px !important;
+                border: none !important;
+            }}
+            button:hover {{
+                background-color: var(--brand-secondary) !important;
+                color: white !important;
+            }}
+
+            [data-testid="stSidebar"] {{
+                background: linear-gradient(180deg, rgba(11,61,109,0.95), rgba(26,156,156,0.9));
+                color: #ffffff;
+            }}
+            [data-testid="stSidebar"] * {{
+                color: #ffffff !important;
+                font-family: var(--brand-font) !important;
+            }}
+            [data-testid="stSidebar"] .stMultiSelect div[data-baseweb="select"] {{
+                background-color: rgba(255,255,255,0.08);
+                border-radius: 6px;
+            }}
+            [data-testid="stSidebar"] .stMultiSelect span {{
+                color: #ffffff !important;
+            }}
+
+            /* Filtros/expanders sobre fondo oscuro */
+            [data-testid="stExpander"] > details > summary {{
+                background-color: rgba(15,41,71,0.9);
+                color: #ffffff;
+            }}
+            [data-testid="stExpander"] .streamlit-expanderContent {{
+                background-color: rgba(26,156,156,0.1);
+            }}
+
+            /* Logo fijo en la esquina superior derecha */
+            .app-logo {{
+                position: fixed;
+                top: 32px;
+                right: 20px;
+                width: 150px;
+                z-index: 1000;
+            }}
+            .app-logo img {{
+                width: 100%;
+                object-fit: contain;
+            }}
+
+            /* Tarjetas y divisores suaves */
+            .stApp > header {{
+                background: linear-gradient(90deg, rgba(11,61,109,0.08), rgba(26,156,156,0.06));
+            }}
+            .stDataFrame, .stMarkdown {{
+                border-radius: 8px;
+            }}
+        </style>
+        {logo_block}
+        """,
+        unsafe_allow_html=True,
+    )
 
 # Archivo CSV
 PORTFOLIO_FILE = (
@@ -276,7 +442,7 @@ def render_maturity_analysis(df):
     if not year_summary.empty:
         chart = (
             alt.Chart(year_summary)
-            .mark_bar(color="#6b21a8")
+            .mark_bar(color=BRAND_COLORS["primary"])
             .encode(
                 x=alt.X('Año vencimiento:O', title='Año de vencimiento'),
                 y=alt.Y('Exposición:Q', title='Exposición (US$)'),
@@ -371,7 +537,7 @@ def render_eligible_activity_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color="#0ea5e9")
+        .mark_bar(color=BRAND_COLORS["accent"])
         .encode(
             x=alt.X('Exposición:Q', title='Exposición (US$)'),
             y=alt.Y('Eligible Activity:N', sort='-x', title='Eligible Activity'),
@@ -442,7 +608,7 @@ def render_pvt_sector_analysis(df: pd.DataFrame):
 
     chart = (
         alt.Chart(summary)
-        .mark_bar(color="#fb923c")
+        .mark_bar(color=BRAND_COLORS["soft-secondary"])
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y("Sector 2:N", sort="-x", title="Categoría PVT"),
@@ -520,7 +686,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
 
         chart = (
             alt.Chart(g)
-            .mark_bar(color="#2563eb")
+            .mark_bar(color=BRAND_COLORS["secondary"])
             .encode(
                 x=alt.X("US $ Equiv:Q", title="Exposición (US$)"),
                 y=alt.Y(f"{column}:N", sort="-x", title=label),
@@ -563,7 +729,7 @@ def render_breakdown(df, column, title, label, include_pie=True, show_table=Fals
             g2['Porcentaje'] = g2['US $ Equiv'] / total_pie
 
             domain = g2[column].tolist()
-            palette = [CATEGORY10[i % len(CATEGORY10)] for i in range(len(domain))]
+            palette = [BRAND_PALETTE[i % len(BRAND_PALETTE)] for i in range(len(domain))]
             color_map = dict(zip(domain, palette))
             color_encoding = alt.Color(
                 f"{column}:N", scale=alt.Scale(domain=domain, range=palette), legend=None
@@ -644,7 +810,10 @@ def render_heatmap(df):
         .encode(
             x=alt.X("Sector:N"),
             y=alt.Y("Country:N"),
-            color=alt.Color("US $ Equiv:Q", scale=alt.Scale(scheme="blues")),
+            color=alt.Color(
+                "US $ Equiv:Q",
+                scale=alt.Scale(range=BRAND_HEAT_GRADIENT),
+            ),
             tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
         )
         .properties(height=380)
@@ -689,7 +858,10 @@ def render_orr_heatmap(df):
         .encode(
             x=alt.X("Sector:N"),
             y=alt.Y("Country:N"),
-            color=alt.Color("ORR ponderado:Q", scale=alt.Scale(scheme="greens")),
+            color=alt.Color(
+                "ORR ponderado:Q",
+                scale=alt.Scale(range=BRAND_ACCENT_GRADIENT),
+            ),
             tooltip=[
                 "Country",
                 "Sector",
@@ -781,7 +953,7 @@ def render_orr_by_dimension(df):
 
     chart = (
         alt.Chart(grouped)
-        .mark_bar(color="#10b981")
+        .mark_bar(color=BRAND_COLORS["highlight"])
         .encode(
             x=alt.X("ORR ponderado:Q", title="ORR ponderado por exposición"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
@@ -848,7 +1020,7 @@ def render_exposure_by_dimension(df):
 
     chart = (
         alt.Chart(exposure)
-        .mark_bar(color="#1d4ed8")
+        .mark_bar(color=BRAND_COLORS["soft-primary"])
         .encode(
             x=alt.X("Exposición:Q", title="Exposición (US$)"),
             y=alt.Y(f"{dimension}:N", sort="-x", title=dims[dimension]),
@@ -889,6 +1061,8 @@ def render_top_bottom(df, n=10):
 # ============================================
 # APP PRINCIPAL
 # ============================================
+
+apply_brand_styling()
 
 df = load_portfolio_data(
     PORTFOLIO_FILE,
