@@ -657,7 +657,7 @@ def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     c1, c2, c3 = st.columns(3)
     c1.metric("Total portfolio (US$)", format_currency(total_full))
     c2.metric("Filtered exposure (US$)", format_currency(filtered_total))
-    c3.metric("Portfolio share", f"{participation:.1f}%")
+    c3.metric("Portfolio share", f"{participation:.3f}%")
 
 # ============================================
 # RENDER: BREAKDOWNS (BARRAS + PIE)
