@@ -1082,10 +1082,16 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     st.dataframe(matrix_display, use_container_width=True)
 
     heat_df = scored_df.copy()
-    heat_df["PointId"] = (
-        heat_df["ImpactScore"].astype(str) + "-" + heat_df["ProbabilityScore"].astype(str)
+
+    def format_country_block(names: pd.Series) -> str:
+        unique_names = sorted({name for name in names if isinstance(name, str) and name})
+        return "\n".join(f"• {name}" for name in unique_names)
+
+    label_df = (
+        heat_df.groupby(["ImpactScore", "ProbabilityScore"])
+        .agg(Countries=("Country", format_country_block))
+        .reset_index()
     )
-    heat_df["LabelOffset"] = heat_df.groupby("PointId").cumcount() * 14 - 10
 
     base = alt.Chart(heat_df).encode(
         x=alt.X(
@@ -1115,9 +1121,20 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
         ],
     )
 
-    labels = base.mark_text(fontWeight="bold", color=BRAND_COLORS["primary"]).encode(
-        text="Country:N",
-        yOffset="LabelOffset:Q",
+    labels = (
+        alt.Chart(label_df)
+        .mark_text(
+            fontWeight="bold",
+            color=BRAND_COLORS["primary"],
+            align="center",
+            baseline="middle",
+            lineHeight=14,
+        )
+        .encode(
+            x="ImpactScore:Q",
+            y="ProbabilityScore:Q",
+            text="Countries:N",
+        )
     )
 
     st.markdown("#### Heatmap de riesgo (impacto vs. probabilidad)")
@@ -1190,12 +1207,28 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
                 color=alt.Color(
                     "GDPGrowth:Q",
                     title="GDP growth %",
-                    scale=alt.Scale(scheme="blues", domainMid=0),
+                    scale=alt.Scale(scheme="redblue", domainMid=0),
                 ),
                 tooltip=["Country:N", "Year:N", alt.Tooltip("GDPGrowth:Q", format=".1f")],
             )
         )
-        st.altair_chart(heatmap, use_container_width=True)
+
+        heatmap_labels = (
+            alt.Chart(gdp_long)
+            .mark_text(fontWeight="bold")
+            .encode(
+                x=alt.X("Year:O"),
+                y=alt.Y("Country:N", sort=matrix_display["Country"].tolist()),
+                text=alt.Text("GDPGrowth:Q", format=".1f"),
+                color=alt.condition(
+                    "datum.GDPGrowth < 0",
+                    alt.value("#ffffff"),
+                    alt.value(BRAND_COLORS["primary"]),
+                ),
+            )
+        )
+
+        st.altair_chart(heatmap + heatmap_labels, use_container_width=True)
 
 
 # ============================================
