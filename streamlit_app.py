@@ -1289,41 +1289,47 @@ def render_risk_matrix(df: pd.DataFrame):
 
 
 def render_heatmap(df: pd.DataFrame):
-    st.subheader("RiskScore heatmap")
+    st.subheader("Risk score heatmap")
 
     if df.empty:
         st.info("No hay datos de riesgo para graficar.")
         return
 
-    chart = (
-        alt.Chart(df)
-        .mark_circle(color=BRAND_COLORS["accent"], opacity=0.85)
-        .encode(
-            x=alt.X("ProbabilityScore:Q", title="Probability score", scale=alt.Scale(domain=[0, 5])),
-            y=alt.Y("ImpactScore:Q", title="Impact score", scale=alt.Scale(domain=[0, 5])),
-            size=alt.Size(
-                "Exposure:Q",
-                title="Exposure (US$)",
-                scale=alt.Scale(range=[60, 900]),
-                legend=alt.Legend(orient="right"),
-            ),
-            color=alt.Color(
-                "RiskScore:Q",
-                scale=alt.Scale(domain=[0, 25], range=["#2ca25f", "#fee08b", "#d73027"]),
-                title="Risk score",
-            ),
-            tooltip=[
-                "Country",
-                alt.Tooltip("ImpactScore:Q", title="Impact score"),
-                alt.Tooltip("ProbabilityScore:Q", title="Probability score"),
-                alt.Tooltip("RiskScore:Q", title="Risk score"),
-                alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
-            ],
-        )
-        .properties(height=420)
+    base = alt.Chart(df).encode(
+        x=alt.X("ProbabilityScore:Q", title="Probability score", scale=alt.Scale(domain=[0, 5])),
+        y=alt.Y("ImpactScore:Q", title="Impact score", scale=alt.Scale(domain=[0, 5])),
     )
 
-    st.altair_chart(chart, use_container_width=True)
+    circles = base.mark_circle(color=BRAND_COLORS["accent"], opacity=0.85).encode(
+        size=alt.Size(
+            "Exposure:Q",
+            title="Exposure (US$)",
+            scale=alt.Scale(range=[60, 900]),
+            legend=alt.Legend(orient="right"),
+        ),
+        color=alt.Color(
+            "RiskScore:Q",
+            scale=alt.Scale(domain=[0, 25], range=["#2ca25f", "#fee08b", "#d73027"]),
+            title="Risk score",
+        ),
+        tooltip=[
+            "Country",
+            alt.Tooltip("ImpactScore:Q", title="Impact score"),
+            alt.Tooltip("ProbabilityScore:Q", title="Probability score"),
+            alt.Tooltip("RiskScore:Q", title="Risk score"),
+            alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
+        ],
+    )
+
+    labels = base.mark_text(
+        align="center",
+        baseline="middle",
+        dy=-12,
+        color=BRAND_COLORS["primary"],
+        fontWeight="bold",
+    ).encode(text=alt.Text("Country:N"))
+
+    st.altair_chart(alt.layer(circles, labels).properties(height=420), use_container_width=True)
 
 
 def render_kpis(df: pd.DataFrame):
@@ -1363,15 +1369,21 @@ def render_kpis(df: pd.DataFrame):
 
 
 def render_risk_bar(df: pd.DataFrame):
-    st.subheader("Exposure at risk by country")
+    st.subheader("Exposure at risk and GDP outlook")
 
-    bar_data = df.sort_values("ExposureAtRisk", ascending=False)
-    chart = (
-        alt.Chart(bar_data)
-        .mark_bar(color=BRAND_COLORS["accent"])
-        .encode(
-            x=alt.X("ExposureAtRisk:Q", title="Exposure at risk (US$)"),
-            y=alt.Y("Country:N", sort="-x"),
+    if df.empty:
+        st.info("No hay datos de riesgo para graficar.")
+        return
+
+    country_order = df.sort_values("ExposureAtRisk", ascending=False)["Country"].tolist()
+
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        bar_data = df.sort_values("ExposureAtRisk", ascending=False)
+        base = alt.Chart(bar_data).encode(
+            x=alt.X("Country:N", sort=country_order, title="Country"),
+            y=alt.Y("ExposureAtRisk:Q", title="Exposure at risk (US$)"),
             tooltip=[
                 "Country",
                 alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
@@ -1379,31 +1391,84 @@ def render_risk_bar(df: pd.DataFrame):
                 alt.Tooltip("ExposureAtRisk:Q", format=",.0f", title="Exposure at risk"),
             ],
         )
-    )
 
-    st.altair_chart(chart, use_container_width=True)
+        bars = base.mark_bar(color=BRAND_COLORS["accent"])
+        labels = base.mark_text(
+            dy=-6,
+            color=BRAND_COLORS["primary"],
+            fontWeight="bold",
+            angle=0,
+        ).encode(text=alt.Text("ExposureAtRisk:Q", format=",.0f"))
+
+        st.altair_chart(alt.layer(bars, labels), use_container_width=True)
+
+    with right_col:
+        if not set(RISK_GDP_COLUMNS).issubset(df.columns):
+            st.info("No GDP forecast data available to display.")
+            return
+
+        gdp_long = (
+            df.melt(
+                id_vars=["Country"],
+                value_vars=RISK_GDP_COLUMNS,
+                var_name="Year",
+                value_name="GDPGrowth",
+            )
+            .dropna(subset=["GDPGrowth"])
+        )
+
+        if gdp_long.empty:
+            st.info("No GDP forecast data available to display.")
+            return
+
+        gdp_long["Year"] = gdp_long["Year"].str.replace("GDP_", "")
+
+        heatmap = alt.Chart(gdp_long).mark_rect().encode(
+            x=alt.X("Year:N", title="Year"),
+            y=alt.Y("Country:N", sort=country_order, title="Country"),
+            color=alt.Color(
+                "GDPGrowth:Q",
+                title="GDP % YoY",
+                scale=alt.Scale(
+                    domainMid=0,
+                    range=["#b2182b", "#f7f7f7", "#2166ac"],
+                ),
+            ),
+            tooltip=[
+                "Country",
+                alt.Tooltip("Year:N", title="Year"),
+                alt.Tooltip("GDPGrowth:Q", format=".1f", title="GDP % YoY"),
+            ],
+        )
+
+        heatmap_labels = heatmap.mark_text(
+            color=BRAND_COLORS["primary"],
+            fontWeight="bold",
+        ).encode(text=alt.Text("GDPGrowth:Q", format=".1f"))
+
+        st.altair_chart(alt.layer(heatmap, heatmap_labels), use_container_width=True)
 
 
 def render_risk_methodology():
     st.markdown(
         """
         #### Scoring methodology
-        * **Impact score (0-5):** basado en la contribución del turismo al PIB (TourismGDP).
-            * 0 si no hay datos o el valor es menor o igual a 0
-            * 1 para valores menores a 20%
-            * 2 entre 20% y 40%
-            * 3 entre 40% y 60%
-            * 4 entre 60% y 80%
-            * 5 para valores mayores a 80%
-        * **Probability score (0-5):** inverso de la frecuencia de huracanes (FrequencyYears).
-            * 0 si no hay datos o el valor es menor o igual a 0
-            * 5 si la frecuencia es menor a 5 años
-            * 4 entre 5 y 10 años
-            * 3 entre 10 y 15 años
-            * 2 entre 15 y 25 años
-            * 1 para más de 25 años
-        * **Risk score:** `Impact score × Probability score` (rango 0 a 25).
-        * **Risk factor:** `Risk score / 25`, se usa para ponderar la exposición.
+        * **Impact score (0-5):** based on tourism contribution to GDP (`TourismGDP`).
+            * 0 when there is no data or the value is less than or equal to 0%
+            * 1 for values below 20%
+            * 2 between 20% and 40%
+            * 3 between 40% and 60%
+            * 4 between 60% and 80%
+            * 5 for values above 80%
+        * **Probability score (0-5):** inverse of hurricane frequency (`FrequencyYears`).
+            * 0 when there is no data or the value is less than or equal to 0
+            * 5 if the frequency is under 5 years
+            * 4 between 5 and 10 years
+            * 3 between 10 and 15 years
+            * 2 between 15 and 25 years
+            * 1 for more than 25 years
+        * **Risk score:** `Impact score × Probability score` (range 0 to 25).
+        * **Risk factor:** `Risk score / 25`, used to weight exposure.
         * **Exposure at risk:** `Exposure × Risk factor`.
         """
     )
