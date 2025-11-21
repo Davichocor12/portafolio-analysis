@@ -1116,7 +1116,8 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     )
 
     labels = base.mark_text(fontWeight="bold", color=BRAND_COLORS["primary"]).encode(
-        text="Country:N", dy="LabelOffset:Q"
+        text="Country:N",
+        yOffset="LabelOffset:Q",
     )
 
     st.markdown("#### Heatmap de riesgo (impacto vs. probabilidad)")
