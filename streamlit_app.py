@@ -5,7 +5,7 @@ import altair as alt
 from pathlib import Path
 
 CATEGORY10 = [
-    "#5d9ea7",  # Azul marino
+    "#032043",  # Azul marino profundo
     "#be993c",  # Amarillo
     "#032043",  # Azul oscuro
     "#45777e",  # Variante azul verdoso
@@ -14,7 +14,7 @@ CATEGORY10 = [
 ]
 
 BRAND_COLORS = {
-    "primary": "#5d9ea7",  # Azul marino (barras principales y filtros)
+    "primary": "#032043",  # Azul marino profundo (barras principales y filtros)
     "secondary": "#45777e",  # Variante azul verdoso (botones, resaltados)
     "accent": "#be993c",  # Amarillo (llamados de acción)
     "neutral": "#032043",  # Azul oscuro para texto principal
@@ -136,6 +136,17 @@ def apply_brand_styling() -> str | None:
             }}
 
             /* Botones y selectores */
+            .stButton > button, .stDownloadButton > button {{
+                background-color: var(--brand-accent) !important;
+                color: #ffffff !important;
+                border-radius: 8px !important;
+                border: none !important;
+                font-weight: 700 !important;
+            }}
+            .stButton > button:hover, .stDownloadButton > button:hover {{
+                background-color: var(--brand-secondary) !important;
+                color: #ffffff !important;
+            }}
             button {{
                 background-color: var(--brand-accent) !important;
                 color: #ffffff !important;
