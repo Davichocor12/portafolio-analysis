@@ -1187,12 +1187,103 @@ def compute_kpis(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(kpi_rows)
 
 
-def render_risk_matrix(df: pd.DataFrame):
-    st.subheader("Risk matrix")
+def build_risk_view(plot_df: pd.DataFrame):
+    """Combine hurricane risk inputs with current exposure by country."""
 
-    display_cols = ["Country", "ImpactScore", "ProbabilityScore", "RiskScore", "RiskLevel"]
-    ordered = df[display_cols].sort_values("RiskScore", ascending=False).reset_index(drop=True)
-    st.dataframe(ordered, use_container_width=True)
+    countries = sorted(plot_df["Country"].unique()) if not plot_df.empty else []
+    risk_inputs = load_hurricane_tourism_data(HURRICANE_RISK_FILE)
+    scores_df = compute_scores(risk_inputs, countries)
+    kpi_df = compute_kpis(scores_df)
+
+    exposure = (
+        plot_df.groupby("Country")["US $ Equiv"].sum().reset_index(name="Exposure")
+    )
+    total_exposure = exposure["Exposure"].sum()
+
+    risk_view = scores_df.merge(exposure, on="Country", how="left")
+    risk_view["Exposure"] = risk_view["Exposure"].fillna(0)
+    risk_view["ExposureShare"] = (
+        risk_view["Exposure"] / total_exposure if total_exposure else 0
+    )
+    risk_view["RiskFactor"] = risk_view["RiskScore"] / 25
+    risk_view["ExposureAtRisk"] = risk_view["Exposure"] * risk_view["RiskFactor"]
+
+    risk_view = risk_view.merge(kpi_df, on="Country", how="left")
+
+    return risk_view, total_exposure
+
+
+def render_risk_summary(risk_view: pd.DataFrame, total_exposure: float):
+    st.subheader("Risk summary linked to exposure")
+
+    available = risk_view[risk_view["RiskScore"] > 0]
+    high = risk_view[risk_view["RiskLevel"].isin(["High", "Critical"])]
+
+    weighted_risk = (
+        (risk_view["RiskScore"] * risk_view["Exposure"]).sum() / total_exposure
+        if total_exposure
+        else 0
+    )
+    high_exposure = high["Exposure"].sum()
+    high_share = (high_exposure / total_exposure * 100) if total_exposure else 0
+    available_exposure = available["Exposure"].sum()
+    available_share = (
+        available_exposure / total_exposure * 100 if total_exposure else 0
+    )
+
+    top_country = risk_view.sort_values("ExposureAtRisk", ascending=False).head(1)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric(
+        "Exposure with risk data",
+        format_currency(available_exposure),
+        f"{available_share:.1f}% of filtered portfolio",
+    )
+    c2.metric(
+        "Exposure in High/Critical countries",
+        format_currency(high_exposure),
+        f"{high_share:.1f}% of filtered portfolio",
+    )
+    c3.metric(
+        "Exposure-weighted risk score",
+        f"{weighted_risk:.1f}",
+        "Max=25 (higher means more risk)",
+    )
+
+    if not top_country.empty:
+        country = top_country.iloc[0]
+        st.info(
+            f"**Largest risk contribution:** {country['Country']} "
+            f"(Exposure at risk: {format_currency(country['ExposureAtRisk'])}, "
+            f"Risk level: {country['RiskLevel']})"
+        )
+
+
+def render_risk_matrix(df: pd.DataFrame):
+    st.subheader("Risk matrix by country")
+
+    display_cols = [
+        "Country",
+        "RiskLevel",
+        "RiskScore",
+        "ImpactScore",
+        "ProbabilityScore",
+        "Exposure",
+        "ExposureShare",
+        "ExposureAtRisk",
+    ]
+    ordered = (
+        df[display_cols]
+        .sort_values(["RiskScore", "ExposureAtRisk"], ascending=False)
+        .reset_index(drop=True)
+    )
+
+    formatted = ordered.copy()
+    formatted["Exposure"] = formatted["Exposure"].apply(format_currency)
+    formatted["ExposureShare"] = formatted["ExposureShare"].apply(lambda x: f"{x:.1%}")
+    formatted["ExposureAtRisk"] = formatted["ExposureAtRisk"].apply(format_currency)
+
+    st.dataframe(formatted, use_container_width=True)
 
 
 def render_heatmap(df: pd.DataFrame):
@@ -1224,7 +1315,7 @@ def render_heatmap(df: pd.DataFrame):
 
 
 def render_kpis(df: pd.DataFrame):
-    st.subheader("Macroeconomic KPIs")
+    st.subheader("Macroeconomic signals (tourism GDP % YoY)")
 
     display_cols = [
         "Country",
@@ -1235,20 +1326,41 @@ def render_kpis(df: pd.DataFrame):
         "volatility",
     ]
 
-    st.dataframe(df[display_cols], use_container_width=True)
+    formatted = df[display_cols].rename(
+        columns={
+            "avg_gdp": "Avg growth",
+            "positive_ratio": "% of growth years",
+            "severe_years": "Years < -5%",
+            "shock_avg": "Avg recession",
+            "volatility": "Volatility",
+        }
+    )
+    formatted["Avg growth"] = formatted["Avg growth"].apply(lambda v: f"{v:.1f}%")
+    formatted["% of growth years"] = formatted["% of growth years"].apply(
+        lambda v: f"{v:.1f}%"
+    )
+    formatted["Avg recession"] = formatted["Avg recession"].apply(lambda v: f"{v:.1f}%")
+    formatted["Volatility"] = formatted["Volatility"].apply(lambda v: f"{v:.1f}%")
+
+    st.dataframe(formatted, use_container_width=True)
 
 
 def render_risk_bar(df: pd.DataFrame):
-    st.subheader("RiskScore by country")
+    st.subheader("Exposure at risk by country")
 
-    bar_data = df.sort_values("RiskScore", ascending=False)
+    bar_data = df.sort_values("ExposureAtRisk", ascending=False)
     chart = (
         alt.Chart(bar_data)
         .mark_bar(color=BRAND_COLORS["accent"])
         .encode(
-            x=alt.X("RiskScore:Q", title="Risk score"),
+            x=alt.X("ExposureAtRisk:Q", title="Exposure at risk (US$)"),
             y=alt.Y("Country:N", sort="-x"),
-            tooltip=["Country", alt.Tooltip("RiskScore:Q", format=",.0f")],
+            tooltip=[
+                "Country",
+                alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
+                alt.Tooltip("RiskScore:Q", format=",.0f", title="Risk score"),
+                alt.Tooltip("ExposureAtRisk:Q", format=",.0f", title="Exposure at risk"),
+            ],
         )
     )
 
@@ -1256,16 +1368,18 @@ def render_risk_bar(df: pd.DataFrame):
 
 
 def render_hurricane_tourism_section(plot_df: pd.DataFrame):
-    countries = sorted(plot_df["Country"].unique())
-    risk_inputs = load_hurricane_tourism_data(HURRICANE_RISK_FILE)
-    scores_df = compute_scores(risk_inputs, countries)
-    kpi_df = compute_kpis(scores_df)
+    risk_view, total_exposure = build_risk_view(plot_df)
 
     st.header("Hurricane & Tourism Risk Matrix")
-    render_risk_matrix(scores_df)
-    render_heatmap(scores_df)
-    render_kpis(kpi_df)
-    render_risk_bar(scores_df)
+    if total_exposure == 0:
+        st.info("There is no positive exposure to link with the hurricane risk data.")
+        return
+
+    render_risk_summary(risk_view, total_exposure)
+    render_risk_matrix(risk_view)
+    render_heatmap(risk_view)
+    render_kpis(risk_view)
+    render_risk_bar(risk_view)
 
 
 def render_exposure_by_dimension(df):
