@@ -398,6 +398,76 @@ def render_eligible_activity_analysis(df: pd.DataFrame):
     st.markdown("**Detalle por Eligible Activity**")
     st.dataframe(table_display, use_container_width=True)
 
+def render_pvt_sector_analysis(df: pd.DataFrame):
+    """Analizar exposición a sectores etiquetados como PVT en "Sector 2"."""
+
+    st.header("Exposición a sectores PVT (Sector 2)")
+
+    if "Sector 2" not in df.columns:
+        st.info("El archivo no contiene la columna 'Sector 2' para este análisis.")
+        return
+
+    df_pos = df[df["US $ Equiv"] > 0].copy()
+    if df_pos.empty:
+        st.info("Solo hay valores en cero; no es posible mostrar el análisis.")
+        return
+
+    pvt_df = df_pos[df_pos["Sector 2"].str.contains("PVT", case=False, na=False)]
+    if pvt_df.empty:
+        st.info("No se encontraron registros de Sector 2 que contengan 'PVT'.")
+        return
+
+    total_filtered = df_pos["US $ Equiv"].sum()
+    pvt_total = pvt_df["US $ Equiv"].sum()
+    portfolio_share = (pvt_total / total_filtered * 100) if total_filtered else 0
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Exposición total PVT (US$)", format_currency(pvt_total))
+    c2.metric("Registros PVT", f"{len(pvt_df):,}")
+    c3.metric("Participación en portafolio", f"{portfolio_share:.1f}%")
+
+    summary = (
+        pvt_df.groupby("Sector 2")
+        .agg(
+            Operaciones=("Sector 2", "count"),
+            Exposición=("US $ Equiv", "sum"),
+        )
+        .reset_index()
+    )
+
+    summary = summary[summary["Exposición"] > 0].sort_values("Exposición", ascending=False)
+    summary["Participación PVT"] = summary["Exposición"] / pvt_total
+
+    chart = (
+        alt.Chart(summary)
+        .mark_bar(color="#fb923c")
+        .encode(
+            x=alt.X("Exposición:Q", title="Exposición (US$)"),
+            y=alt.Y("Sector 2:N", sort="-x", title="Categoría PVT"),
+            tooltip=[
+                "Sector 2:N",
+                alt.Tooltip("Exposición:Q", format=",.0f"),
+                alt.Tooltip("Operaciones:Q", title="Número de operaciones"),
+                alt.Tooltip("Participación PVT:Q", format=".1%"),
+            ],
+        )
+    )
+
+    st.altair_chart(chart, use_container_width=True)
+
+    table_display = summary.assign(
+        **{
+            "Exposición (US$)": summary["Exposición"].apply(format_currency),
+            "Participación PVT": summary["Participación PVT"].apply(lambda x: f"{x:.1%}"),
+        }
+    )[
+        ["Sector 2", "Operaciones", "Exposición (US$)", "Participación PVT"]
+    ]
+
+    st.markdown("**Detalle de categorías PVT en Sector 2**")
+    st.dataframe(table_display, use_container_width=True)
+
+
 def render_portfolio_summary(total_full: float, df_filtered: pd.DataFrame):
     """Mostrar comparación entre el portafolio completo y el filtrado actual."""
 
@@ -911,6 +981,10 @@ else:
     st.divider()
 
     render_eligible_activity_analysis(plot_df)
+
+    st.divider()
+
+    render_pvt_sector_analysis(plot_df)
 
     st.divider()
 
