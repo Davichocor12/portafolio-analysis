@@ -1266,8 +1266,16 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     st.markdown("#### Risk heatmap (impact vs. probability)")
     risk_chart = (
         (scatter + labels)
-        .properties(height=420, padding={"left": 5, "right": 260, "top": 5, "bottom": 5})
-        .configure_legend(titleLimit=320, labelLimit=260, labelFontSize=12, titleFontSize=13)
+        .properties(
+            height=560,
+            padding={"left": 10, "right": 40, "top": 10, "bottom": 10},
+        )
+        .configure_legend(
+            titleLimit=320,
+            labelLimit=260,
+            labelFontSize=12,
+            titleFontSize=13,
+        )
     )
     st.altair_chart(risk_chart, use_container_width=True)
 
