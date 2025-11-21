@@ -1203,6 +1203,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
                 titleLimit=300,
                 labelLimit=200,
                 symbolStrokeColor=BRAND_COLORS["primary"],
+                offset=90,
             ),
         ),
         color=alt.Color(
@@ -1255,7 +1256,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
     st.markdown("#### Risk heatmap (impact vs. probability)")
     risk_chart = (
         (scatter + labels)
-        .properties(height=420, padding={"left": 5, "right": 160, "top": 5, "bottom": 5})
+        .properties(height=420, padding={"left": 5, "right": 220, "top": 5, "bottom": 5})
         .configure_legend(titleLimit=320, labelLimit=260, labelFontSize=12, titleFontSize=13)
     )
     st.altair_chart(risk_chart, use_container_width=True)
