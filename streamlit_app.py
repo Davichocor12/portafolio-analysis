@@ -32,7 +32,7 @@ st.set_page_config(
 PORTFOLIO_FILE = (
     Path(__file__).parent
     / 'data'
-    / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V2.csv'
+    / 'Corporate Data for GCP 31Aug25 - CBA Advisory-Restricted name_V4.csv'
 )
 
 # ============================================
