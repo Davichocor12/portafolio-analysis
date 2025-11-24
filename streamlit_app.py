@@ -1422,21 +1422,55 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 def render_heatmap(df):
     st.subheader("Country vs Sector heatmap")
 
-    g = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
+    if 'Country' not in df.columns or 'Sector' not in df.columns:
+        st.info("The dataset is missing the required 'Country' or 'Sector' columns.")
+        return
+
+    country_order = sorted(df['Country'].dropna().unique())
+    sector_order = sorted(df['Sector'].dropna().unique())
+
+    if not country_order or not sector_order:
+        st.info("There is no data available to display the heatmap.")
+        return
+
+    grouped = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
+
+    full_index = pd.MultiIndex.from_product(
+        [country_order, sector_order], names=['Country', 'Sector']
+    )
+    grouped = (
+        grouped.set_index(['Country', 'Sector'])
+        .reindex(full_index, fill_value=0)
+        .reset_index()
+    )
+
+    chart_height = max(32 * len(country_order), 240)
 
     heat = (
-        alt.Chart(g)
+        alt.Chart(grouped)
         .mark_rect()
         .encode(
-            x=alt.X("Sector:N"),
-            y=alt.Y("Country:N"),
+            x=alt.X("Sector:N", sort=sector_order, title="Sector"),
+            y=alt.Y(
+                "Country:N",
+                sort=country_order,
+                scale=alt.Scale(domain=country_order),
+                axis=alt.Axis(labelLimit=260),
+                title="Country",
+            ),
             color=alt.Color(
                 "US $ Equiv:Q",
-                scale=alt.Scale(range=["#e8eef2", BRAND_COLORS["secondary"], BRAND_COLORS["primary"]]),
+                scale=alt.Scale(
+                    range=["#e8eef2", BRAND_COLORS["secondary"], BRAND_COLORS["primary"]]
+                ),
             ),
-            tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
+            tooltip=[
+                "Country",
+                "Sector",
+                alt.Tooltip("US $ Equiv:Q", format=",.0f", title="Exposure (US$)"),
+            ],
         )
-        .properties(height=380)
+        .properties(height=chart_height)
     )
 
     st.altair_chart(heat, use_container_width=True)
@@ -1472,24 +1506,46 @@ def render_orr_heatmap(df):
         st.info("There is no positive exposure to plot in the ORR heatmap.")
         return
 
+    country_order = sorted(df_orr['Country'].dropna().unique())
+    sector_order = sorted(df_orr['Sector'].dropna().unique())
+    full_index = pd.MultiIndex.from_product(
+        [country_order, sector_order], names=['Country', 'Sector']
+    )
+    grouped = (
+        grouped.set_index(['Country', 'Sector'])
+        .reindex(full_index)
+        .reset_index()
+    )
+    grouped['Exposure'] = grouped['Exposure'].fillna(0)
+
+    chart_height = max(32 * len(country_order), 240)
+
     heat = (
         alt.Chart(grouped)
         .mark_rect()
         .encode(
-            x=alt.X("Sector:N"),
-            y=alt.Y("Country:N"),
+            x=alt.X("Sector:N", sort=sector_order, title="Sector"),
+            y=alt.Y(
+                "Country:N",
+                sort=country_order,
+                scale=alt.Scale(domain=country_order),
+                axis=alt.Axis(labelLimit=260),
+                title="Country",
+            ),
             color=alt.Color(
                 "ORR ponderado:Q",
-                scale=alt.Scale(range=["#fff5e6", BRAND_COLORS["highlight"], BRAND_COLORS["accent"]]),
+                scale=alt.Scale(
+                    range=["#fff5e6", BRAND_COLORS["highlight"], BRAND_COLORS["accent"]]
+                ),
             ),
             tooltip=[
                 "Country",
                 "Sector",
                 alt.Tooltip("ORR ponderado:Q", format=".2f"),
-                alt.Tooltip("Exposure:Q", format=",.0f"),
+                alt.Tooltip("Exposure:Q", format=",.0f", title="Exposure (US$)"),
             ],
         )
-        .properties(height=380)
+        .properties(height=chart_height)
     )
 
     st.altair_chart(heat, use_container_width=True)
