@@ -1213,6 +1213,7 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
             "ImpactScore:Q",
             title="Impact (Tourism GDP share)",
             scale=alt.Scale(domain=[0, 5], nice=False),
+            axis=alt.Axis(values=list(range(0, 6)), tickCount=6),
         ),
         y=alt.Y(
             "ProbabilityScore:Q",
