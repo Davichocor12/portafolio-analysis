@@ -123,6 +123,30 @@ def normalize_country_name(country: str) -> str:
 
     return COUNTRY_NAME_MAP.get(_country_key(cleaned), cleaned)
 
+
+def normalize_sector_label(label: str) -> str:
+    """Return a canonicalized sector label with consistent spacing and case."""
+
+    if not isinstance(label, str):
+        return "Not specified"
+
+    cleaned = label.strip()
+    if not cleaned:
+        return "Not specified"
+
+    if cleaned.lower() in {"nan", "<na>", "none", "null"}:
+        return "Not specified"
+
+    normalized = re.sub(r"\s+", " ", cleaned)
+    normalized = re.sub(r"\s*-\s*", " - ", normalized)
+    normalized = re.sub(r"\s*&\s*", " & ", normalized)
+    normalized = normalized.strip()
+
+    if normalized.lower() == "not specified":
+        return "Not specified"
+
+    return normalized.upper()
+
 # ============================================
 # GENERAL CONFIGURATION
 # ============================================
@@ -378,6 +402,10 @@ def load_portfolio_data(file_path: Path, last_modified: float):
 
     if 'Country' in df.columns:
         df['Country'] = df['Country'].apply(normalize_country_name)
+
+    for sector_col in ["Sector", "Sector 2"]:
+        if sector_col in df.columns:
+            df[sector_col] = df[sector_col].apply(normalize_sector_label)
 
     # 4.1. Simplified delinquency flag column
     if 'Delinq band' in df.columns:
