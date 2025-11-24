@@ -1422,69 +1422,21 @@ def render_climate_risk_section(plot_df: pd.DataFrame, climate_df: pd.DataFrame)
 def render_heatmap(df):
     st.subheader("Country vs Sector heatmap")
 
-    countries = sorted(df['Country'].dropna().unique())
-    sectors = sorted(df['Sector'].dropna().unique())
-    heat_height = max(360, 28 * max(len(countries), 1))
-    heat_width = max(900, 40 * max(len(sectors), 1))
-
-    country_sector_grid = pd.MultiIndex.from_product(
-        [countries, sectors], names=["Country", "Sector"]
-    ).to_frame(index=False)
-
-    g = (
-        df.groupby(['Country', 'Sector'])['US $ Equiv']
-        .sum()
-        .reset_index()
-    )
-
-    heat_df = (
-        country_sector_grid.merge(g, on=['Country', 'Sector'], how='left')
-        .fillna({'US $ Equiv': 0})
-    )
-
-    cells_with_data = int((heat_df['US $ Equiv'] > 0).sum())
-    st.caption(
-        f"Data check: plotting {len(countries)} countries, {len(sectors)} sectors, "
-        f"with {cells_with_data} populated cells out of {len(heat_df)} combinations."
-    )
+    g = df.groupby(['Country', 'Sector'])['US $ Equiv'].sum().reset_index()
 
     heat = (
-        alt.Chart(heat_df)
+        alt.Chart(g)
         .mark_rect()
         .encode(
-            x=alt.X(
-                "Sector:N",
-                sort=sectors,
-                axis=alt.Axis(
-                    title="Sector",
-                    labelAngle=-45,
-                    labelFontSize=11,
-                    labelLimit=180,
-                    titleFontSize=12,
-                ),
-            ),
-            y=alt.Y(
-                "Country:N",
-                sort=countries,
-                axis=alt.Axis(
-                    title="Country",
-                    labelFontSize=12,
-                    labelLimit=260,
-                    titleFontSize=12,
-                ),
-            ),
+            x=alt.X("Sector:N"),
+            y=alt.Y("Country:N"),
             color=alt.Color(
                 "US $ Equiv:Q",
                 scale=alt.Scale(range=["#e8eef2", BRAND_COLORS["secondary"], BRAND_COLORS["primary"]]),
-                title="Exposure (US$)",
             ),
             tooltip=["Country", "Sector", alt.Tooltip("US $ Equiv:Q", format=",.0f")],
         )
-        .properties(
-            height=heat_height,
-            width=heat_width,
-            padding={"left": 160, "right": 40, "top": 10, "bottom": 10},
-        )
+        .properties(height=380)
     )
 
     st.altair_chart(heat, use_container_width=True)
@@ -1501,9 +1453,6 @@ def render_orr_heatmap(df):
     if df_orr.empty:
         st.info("There are no records with ORR and positive exposure for this selection.")
         return
-
-    countries = sorted(df['Country'].dropna().unique())
-    sectors = sorted(df['Sector'].dropna().unique())
 
     grouped = (
         df_orr.groupby(['Country', 'Sector'])
@@ -1523,53 +1472,15 @@ def render_orr_heatmap(df):
         st.info("There is no positive exposure to plot in the ORR heatmap.")
         return
 
-    country_sector_grid = pd.MultiIndex.from_product(
-        [countries, sectors], names=["Country", "Sector"]
-    ).to_frame(index=False)
-
-    heat_df = (
-        country_sector_grid.merge(grouped, on=['Country', 'Sector'], how='left')
-        .assign(**{
-            'ORR ponderado': lambda d: d['ORR ponderado'].fillna(0),
-            'Exposure': lambda d: d['Exposure'].fillna(0),
-        })
-    )
-
-    populated_cells = int((heat_df['Exposure'] > 0).sum())
-    st.caption(
-        f"Data check: plotting {len(countries)} countries, {len(sectors)} sectors, "
-        f"with {populated_cells} populated ORR cells out of {len(heat_df)} combinations."
-    )
-
     heat = (
-        alt.Chart(heat_df)
+        alt.Chart(grouped)
         .mark_rect()
         .encode(
-            x=alt.X(
-                "Sector:N",
-                sort=sectors,
-                axis=alt.Axis(
-                    title="Sector",
-                    labelAngle=-45,
-                    labelFontSize=11,
-                    labelLimit=180,
-                    titleFontSize=12,
-                ),
-            ),
-            y=alt.Y(
-                "Country:N",
-                sort=countries,
-                axis=alt.Axis(
-                    title="Country",
-                    labelFontSize=12,
-                    labelLimit=260,
-                    titleFontSize=12,
-                ),
-            ),
+            x=alt.X("Sector:N"),
+            y=alt.Y("Country:N"),
             color=alt.Color(
                 "ORR ponderado:Q",
                 scale=alt.Scale(range=["#fff5e6", BRAND_COLORS["highlight"], BRAND_COLORS["accent"]]),
-                title="Weighted ORR",
             ),
             tooltip=[
                 "Country",
@@ -1578,11 +1489,7 @@ def render_orr_heatmap(df):
                 alt.Tooltip("Exposure:Q", format=",.0f"),
             ],
         )
-        .properties(
-            height=max(360, 28 * max(len(countries), 1)),
-            width=max(900, 40 * max(len(sectors), 1)),
-            padding={"left": 160, "right": 40, "top": 10, "bottom": 10},
-        )
+        .properties(height=380)
     )
 
     st.altair_chart(heat, use_container_width=True)
